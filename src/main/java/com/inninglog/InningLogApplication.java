@@ -1,0 +1,13 @@
+package com.inninglog;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class InningLogApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(InningLogApplication.class, args);
+    }
+
+}
