@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
@@ -68,6 +69,7 @@ public class AuthController {
                 authentication.getName(),
                 authentication.getAuthorities().stream()
                         .map(authority -> authority.getAuthority())
+                        .filter(Objects::nonNull)
                         .filter(authority -> authority.startsWith("ROLE_"))
                         .toList(),
                 findUser(authentication.getName()));

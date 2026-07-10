@@ -11,6 +11,7 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.stereotype.Service;
+import org.jspecify.annotations.NonNull;
 
 @Service
 public class GoogleJwtIdentityTokenVerifier implements GoogleIdentityTokenVerifier {
@@ -60,7 +61,7 @@ public class GoogleJwtIdentityTokenVerifier implements GoogleIdentityTokenVerifi
         }
 
         @Override
-        public OAuth2TokenValidatorResult validate(Jwt token) {
+        public OAuth2TokenValidatorResult validate(@NonNull Jwt token) {
             OAuth2TokenValidatorResult defaultResult = defaultValidator.validate(token);
             if (defaultResult.hasErrors()) {
                 return defaultResult;
