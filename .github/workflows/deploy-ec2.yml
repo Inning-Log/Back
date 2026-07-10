@@ -30,6 +30,9 @@ jobs:
       - name: Save image as artifact
         run: docker save $IMAGE_NAME:${{ github.sha }} -o $IMAGE_TAR
 
+      - name: Show image tar size
+        run: ls -lh "$IMAGE_TAR"
+
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
@@ -51,6 +54,7 @@ jobs:
       APP_BIND_ADDRESS: ${{ secrets.APP_BIND_ADDRESS || '127.0.0.1' }}
       APP_HOST_PORT: ${{ secrets.APP_HOST_PORT || '8080' }}
       EC2_ENV_FILE: ${{ secrets.EC2_ENV_FILE || '/etc/inninglog/inninglog.env' }}
+      REMOTE_DEPLOY_DIR: ${{ secrets.REMOTE_DEPLOY_DIR || '/home/ubuntu/deploy' }}
       AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
       BACKEND_SECURITY_GROUP_ID: ${{ secrets.BACKEND_SECURITY_GROUP_ID }}
 
@@ -116,47 +120,52 @@ jobs:
           ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST" \
             "test -f '$EC2_ENV_FILE'"
 
+      - name: Prepare remote deploy directory
+        run: |
+          ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST" \
+            "mkdir -p '$REMOTE_DEPLOY_DIR' && df -h '$REMOTE_DEPLOY_DIR'"
+
       - name: Upload image to EC2
         run: |
           scp -i ~/.ssh/ec2_key -P "$EC2_PORT" \
             "$IMAGE_TAR" \
-            "$EC2_USER@$EC2_HOST:/tmp/"
+            "$EC2_USER@$EC2_HOST:$REMOTE_DEPLOY_DIR/"
 
       - name: Load Docker image on EC2
         run: |
           ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST" \
-            "docker load -i /tmp/$IMAGE_TAR"
+            "docker load -i '$REMOTE_DEPLOY_DIR/$IMAGE_TAR'"
 
       - name: Stop previous container
         run: |
           ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST" \
-            "docker stop $CONTAINER_NAME || true && docker rm $CONTAINER_NAME || true"
+            "docker stop '$CONTAINER_NAME' || true && docker rm '$CONTAINER_NAME' || true"
 
       - name: Start new container
         run: |
           ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST" \
             "docker run -d \
-              --name $CONTAINER_NAME \
+              --name '$CONTAINER_NAME' \
               --restart unless-stopped \
-              --env-file $EC2_ENV_FILE \
-              -p $APP_BIND_ADDRESS:$APP_HOST_PORT:$APP_PORT \
-              $IMAGE_NAME:${{ github.sha }}"
+              --env-file '$EC2_ENV_FILE' \
+              -p '$APP_BIND_ADDRESS:$APP_HOST_PORT:$APP_PORT' \
+              '$IMAGE_NAME:${{ github.sha }}'"
 
       - name: Health check
         run: |
           ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST" \
             "for i in \$(seq 1 20); do \
-              if curl -fsS http://localhost:$APP_HOST_PORT/api/health; then exit 0; fi; \
+              if curl -fsS http://127.0.0.1:$APP_HOST_PORT/api/health; then exit 0; fi; \
               sleep 3; \
             done; \
-            docker logs --tail 100 $CONTAINER_NAME; \
+            docker logs --tail 100 '$CONTAINER_NAME'; \
             exit 1"
 
       - name: Cleanup remote temporary files
         if: always()
         run: |
           ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST" \
-            "rm -f /tmp/$IMAGE_TAR && docker image prune -f" || true
+            "rm -f '$REMOTE_DEPLOY_DIR/$IMAGE_TAR' && docker image prune -f" || true
 
       - name: Close SSH for GitHub Actions runner
         if: always()
