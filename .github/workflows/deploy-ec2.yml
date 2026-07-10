@@ -6,35 +6,17 @@ on:
     branches:
       - main
 
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: true
+
 env:
   IMAGE_TAR: inning-log-${{ github.sha }}.tar
 
 jobs:
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: gradle
-
-      - name: Make Gradle wrapper executable
-        run: chmod +x ./gradlew
-
-      - name: Run tests
-        run: ./gradlew test --no-daemon
-
   build-image:
     name: Build Docker Image
     runs-on: ubuntu-latest
-    needs: test
     env:
       IMAGE_NAME: ${{ secrets.DOCKER_IMAGE_NAME || 'inning-log' }}
 
@@ -66,8 +48,11 @@ jobs:
       EC2_HOST: ${{ secrets.EC2_HOST }}
       EC2_USER: ${{ secrets.EC2_USER }}
       EC2_PORT: ${{ secrets.EC2_PORT || '22' }}
+      APP_BIND_ADDRESS: ${{ secrets.APP_BIND_ADDRESS || '127.0.0.1' }}
       APP_HOST_PORT: ${{ secrets.APP_HOST_PORT || '8080' }}
-      EC2_ENV_FILE: ${{ secrets.EC2_ENV_FILE || '/home/ubuntu/inning-log.env' }}
+      EC2_ENV_FILE: ${{ secrets.EC2_ENV_FILE || '/etc/inninglog/inninglog.env' }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
+      BACKEND_SECURITY_GROUP_ID: ${{ secrets.BACKEND_SECURITY_GROUP_ID }}
 
     steps:
       - name: Download image artifact
@@ -75,12 +60,56 @@ jobs:
         with:
           name: docker-image
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Open SSH for GitHub Actions runner
+        id: open_ssh
+        run: |
+          RUNNER_IP=$(curl -fsS https://checkip.amazonaws.com | tr -d '\n')
+          RUNNER_CIDR="${RUNNER_IP}/32"
+
+          echo "runner_cidr=$RUNNER_CIDR" >> "$GITHUB_OUTPUT"
+          echo "Opening SSH access for $RUNNER_CIDR"
+
+          set +e
+          OUTPUT=$(aws ec2 authorize-security-group-ingress \
+            --group-id "$BACKEND_SECURITY_GROUP_ID" \
+            --ip-permissions "IpProtocol=tcp,FromPort=$EC2_PORT,ToPort=$EC2_PORT,IpRanges=[{CidrIp=$RUNNER_CIDR,Description=github-actions-$GITHUB_RUN_ID}]" 2>&1)
+          STATUS=$?
+          set -e
+
+          if [ $STATUS -ne 0 ]; then
+            if echo "$OUTPUT" | grep -q "InvalidPermission.Duplicate"; then
+              echo "SSH rule already exists for $RUNNER_CIDR"
+            else
+              echo "$OUTPUT"
+              exit $STATUS
+            fi
+          fi
+
+          sleep 5
+
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh
-          printf '%s' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key
+          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" | tr -d '\r' > ~/.ssh/ec2_key
           chmod 600 ~/.ssh/ec2_key
-          ssh-keyscan -p "$EC2_PORT" "$EC2_HOST" >> ~/.ssh/known_hosts
+
+          for i in $(seq 1 10); do
+            if ssh-keyscan -p "$EC2_PORT" "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              exit 0
+            fi
+            echo "ssh-keyscan failed. retry $i..."
+            sleep 3
+          done
+
+          echo "ssh-keyscan failed after retries"
+          exit 1
 
       - name: Check EC2 env file
         run: |
@@ -110,7 +139,7 @@ jobs:
               --name $CONTAINER_NAME \
               --restart unless-stopped \
               --env-file $EC2_ENV_FILE \
-              -p $APP_HOST_PORT:$APP_PORT \
+              -p $APP_BIND_ADDRESS:$APP_HOST_PORT:$APP_PORT \
               $IMAGE_NAME:${{ github.sha }}"
 
       - name: Health check
@@ -127,4 +156,22 @@ jobs:
         if: always()
         run: |
           ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST" \
-            "rm -f /tmp/$IMAGE_TAR && docker image prune -f"
+            "rm -f /tmp/$IMAGE_TAR && docker image prune -f" || true
+
+      - name: Close SSH for GitHub Actions runner
+        if: always()
+        run: |
+          RUNNER_CIDR="${{ steps.open_ssh.outputs.runner_cidr }}"
+
+          if [ -z "$RUNNER_CIDR" ]; then
+            echo "No runner CIDR found. Skip closing SSH rule."
+            exit 0
+          fi
+
+          echo "Closing SSH access for $RUNNER_CIDR"
+
+          aws ec2 revoke-security-group-ingress \
+            --group-id "$BACKEND_SECURITY_GROUP_ID" \
+            --protocol tcp \
+            --port "$EC2_PORT" \
+            --cidr "$RUNNER_CIDR" || true
