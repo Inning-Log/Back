@@ -60,8 +60,9 @@ public class GoogleJwtIdentityTokenVerifier implements GoogleIdentityTokenVerifi
             this.properties = properties;
         }
 
+        @NonNull
         @Override
-        public OAuth2TokenValidatorResult validate(@NonNull Jwt token) {
+        public OAuth2TokenValidatorResult validate(Jwt token) {
             OAuth2TokenValidatorResult defaultResult = defaultValidator.validate(token);
             if (defaultResult.hasErrors()) {
                 return defaultResult;
