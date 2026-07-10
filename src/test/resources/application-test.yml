@@ -1,0 +1,22 @@
+spring:
+  docker:
+    compose:
+      enabled: false
+  datasource:
+    url: jdbc:h2:mem:inninglog;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+app:
+  auth:
+    dev-token-enabled: true
+  jwt:
+    issuer: inning-log-test
+    secret: test-secret-for-inning-log-jwt-32bytes
+    access-token-expiration: 30m
+  oauth:
+    google:
+      client-id: test-google-client-id
