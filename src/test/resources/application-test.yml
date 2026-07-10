@@ -1,14 +1,11 @@
 spring:
-  docker:
-    compose:
-      enabled: false
   datasource:
     url: jdbc:h2:mem:inninglog;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
     username: sa
     password:
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: validate
 
 app:
   auth:
