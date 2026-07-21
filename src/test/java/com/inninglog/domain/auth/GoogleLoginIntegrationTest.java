@@ -2,6 +2,7 @@ package com.inninglog.domain.auth;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -41,7 +42,8 @@ class GoogleLoginIntegrationTest {
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.isNewUser").value(true))
                 .andExpect(jsonPath("$.user.email").value("valid-google-token-register@gmail.com"))
-                .andExpect(jsonPath("$.user.nickname").value("Tester"))
+                .andExpect(jsonPath("$.user.username").doesNotExist())
+                .andExpect(jsonPath("$.user.nickname").doesNotExist())
                 .andExpect(jsonPath("$.user.onboardingCompleted").value(false))
                 .andReturn()
                 .getResponse()
@@ -97,6 +99,126 @@ class GoogleLoginIntegrationTest {
                                 """))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_GOOGLE_TOKEN"));
+    }
+
+    @Test
+    void profileSetupStoresUsernameAndNickname() throws Exception {
+        String accessToken = login("profile-setup");
+
+        mockMvc.perform(put("/api/auth/profile")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "  inning-user  ",
+                                  "nickname": "  Inning Logger  "
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("inning-user"))
+                .andExpect(jsonPath("$.nickname").value("Inning Logger"))
+                .andExpect(jsonPath("$.onboardingCompleted").value(true));
+
+        mockMvc.perform(get("/api/auth/me")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.username").value("inning-user"))
+                .andExpect(jsonPath("$.user.nickname").value("Inning Logger"))
+                .andExpect(jsonPath("$.user.onboardingCompleted").value(true));
+    }
+
+    @Test
+    void profileSetupRejectsDuplicateUsernameButAllowsDuplicateNickname() throws Exception {
+        String firstAccessToken = login("duplicate-username-first");
+        String secondAccessToken = login("duplicate-username-second");
+
+        setupProfile(firstAccessToken, "unique-username", "Same Nickname")
+                .andExpect(status().isOk());
+
+        setupProfile(secondAccessToken, "unique-username", "Different Nickname")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("USERNAME_ALREADY_EXISTS"));
+
+        setupProfile(secondAccessToken, "another-username", "Same Nickname")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("another-username"))
+                .andExpect(jsonPath("$.nickname").value("Same Nickname"));
+    }
+
+    @Test
+    void usernameAvailabilityChecksDuplicatesAndAllowsCurrentUsersUsername() throws Exception {
+        String firstAccessToken = login("availability-first");
+        String secondAccessToken = login("availability-second");
+
+        checkUsernameAvailability(firstAccessToken, "  available-username  ")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("available-username"))
+                .andExpect(jsonPath("$.available").value(true));
+
+        setupProfile(firstAccessToken, "available-username", "First Nickname")
+                .andExpect(status().isOk());
+
+        checkUsernameAvailability(secondAccessToken, "available-username")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(false));
+
+        checkUsernameAvailability(firstAccessToken, "available-username")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true));
+    }
+
+    @Test
+    void profileSetupRequiresAuthentication() throws Exception {
+        mockMvc.perform(put("/api/auth/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "inning-user",
+                                  "nickname": "Inning Logger"
+                                }
+                                """))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private String login(String credentialSuffix) throws Exception {
+        String responseBody = mockMvc.perform(post("/api/auth/google")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "credential": "valid-google-token-%s"
+                                }
+                                """.formatted(credentialSuffix)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        return JsonPath.read(responseBody, "$.accessToken");
+    }
+
+    private org.springframework.test.web.servlet.ResultActions setupProfile(
+            String accessToken,
+            String username,
+            String nickname
+    ) throws Exception {
+        return mockMvc.perform(put("/api/auth/profile")
+                .header("Authorization", "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "username": "%s",
+                          "nickname": "%s"
+                        }
+                        """.formatted(username, nickname)));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions checkUsernameAvailability(
+            String accessToken,
+            String username
+    ) throws Exception {
+        return mockMvc.perform(get("/api/auth/profile/username-availability")
+                .header("Authorization", "Bearer " + accessToken)
+                .queryParam("username", username));
     }
 
     @TestConfiguration

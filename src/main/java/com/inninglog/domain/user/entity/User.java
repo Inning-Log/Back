@@ -23,6 +23,9 @@ public class User {
     @Column(nullable = false, length = 320)
     private String email;
 
+    @Column(unique = true, length = 80)
+    private String username;
+
     @Column(length = 80)
     private String nickname;
 
@@ -45,9 +48,8 @@ public class User {
     protected User() {
     }
 
-    public User(String email, String nickname, String profileImageUrl) {
+    public User(String email, String profileImageUrl) {
         this.email = email;
-        this.nickname = nickname;
         this.profileImageUrl = profileImageUrl;
         this.role = UserRole.USER;
         this.onboardingCompleted = false;
@@ -65,12 +67,15 @@ public class User {
         this.updatedAt = Instant.now();
     }
 
-    public void updateGoogleProfile(String email, String nickname, String profileImageUrl) {
+    public void updateGoogleProfile(String email, String profileImageUrl) {
         this.email = email;
-        if (this.nickname == null || this.nickname.isBlank()) {
-            this.nickname = nickname;
-        }
         this.profileImageUrl = profileImageUrl;
+    }
+
+    public void setupProfile(String username, String nickname) {
+        this.username = username;
+        this.nickname = nickname;
+        this.onboardingCompleted = true;
     }
 
     public Long getId() {
@@ -79,6 +84,10 @@ public class User {
 
     public String getEmail() {
         return email;
+    }
+
+    public String getUsername() {
+        return username;
     }
 
     public String getNickname() {

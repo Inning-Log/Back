@@ -1,5 +1,7 @@
 package com.inninglog.domain.auth.controller;
 
+import com.inninglog.domain.auth.service.AuthUserNotFoundException;
+import com.inninglog.domain.auth.service.DuplicateUsernameException;
 import java.time.Instant;
 
 import org.springframework.http.HttpStatus;
@@ -21,6 +23,21 @@ public class AuthExceptionHandler {
     public ResponseEntity<AuthErrorResponse> handleIllegalStateException(IllegalStateException exception) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(new AuthErrorResponse("AUTH_PROVIDER_NOT_CONFIGURED", exception.getMessage(), Instant.now()));
+    }
+
+    @ExceptionHandler(DuplicateUsernameException.class)
+    public ResponseEntity<AuthErrorResponse> handleDuplicateUsername(DuplicateUsernameException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new AuthErrorResponse(
+                        "USERNAME_ALREADY_EXISTS",
+                        "Username is already in use.",
+                        Instant.now()));
+    }
+
+    @ExceptionHandler(AuthUserNotFoundException.class)
+    public ResponseEntity<AuthErrorResponse> handleUserNotFound(AuthUserNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new AuthErrorResponse("USER_NOT_FOUND", exception.getMessage(), Instant.now()));
     }
 
     public record AuthErrorResponse(String code, String message, Instant timestamp) {
