@@ -2,6 +2,9 @@ package com.inninglog.domain.auth.controller;
 
 import com.inninglog.domain.auth.service.AuthUserNotFoundException;
 import com.inninglog.domain.auth.service.DuplicateUsernameException;
+import com.inninglog.domain.team.service.TeamNotFoundException;
+import com.inninglog.domain.user.entity.FavoriteTeamAlreadySelectedException;
+import com.inninglog.domain.user.entity.ProfileSetupRequiredException;
 import java.time.Instant;
 
 import org.springframework.http.HttpStatus;
@@ -38,6 +41,26 @@ public class AuthExceptionHandler {
     public ResponseEntity<AuthErrorResponse> handleUserNotFound(AuthUserNotFoundException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new AuthErrorResponse("USER_NOT_FOUND", exception.getMessage(), Instant.now()));
+    }
+
+    @ExceptionHandler(TeamNotFoundException.class)
+    public ResponseEntity<AuthErrorResponse> handleTeamNotFound(TeamNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new AuthErrorResponse("TEAM_NOT_FOUND", exception.getMessage(), Instant.now()));
+    }
+
+    @ExceptionHandler(ProfileSetupRequiredException.class)
+    public ResponseEntity<AuthErrorResponse> handleProfileSetupRequired(ProfileSetupRequiredException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new AuthErrorResponse("PROFILE_SETUP_REQUIRED", exception.getMessage(), Instant.now()));
+    }
+
+    @ExceptionHandler(FavoriteTeamAlreadySelectedException.class)
+    public ResponseEntity<AuthErrorResponse> handleFavoriteTeamAlreadySelected(
+            FavoriteTeamAlreadySelectedException exception
+    ) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new AuthErrorResponse("FAVORITE_TEAM_ALREADY_SELECTED", exception.getMessage(), Instant.now()));
     }
 
     public record AuthErrorResponse(String code, String message, Instant timestamp) {

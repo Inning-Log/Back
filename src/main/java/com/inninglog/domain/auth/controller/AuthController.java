@@ -1,6 +1,7 @@
 package com.inninglog.domain.auth.controller;
 
 import com.inninglog.domain.auth.dto.CurrentUserResponse;
+import com.inninglog.domain.auth.dto.FavoriteTeamSelectionRequest;
 import com.inninglog.domain.auth.dto.GoogleLoginRequest;
 import com.inninglog.domain.auth.dto.LoginResponse;
 import com.inninglog.domain.auth.dto.ProfileSetupRequest;
@@ -83,6 +84,17 @@ public class AuthController {
                 authentication.getName(),
                 request.username(),
                 request.nickname());
+    }
+
+    @Operation(summary = "Select initial favorite KBO team and complete onboarding")
+    @PostMapping("/profile/favorite-team")
+    public UserResponse selectInitialFavoriteTeam(
+            JwtAuthenticationToken authentication,
+            @Valid @RequestBody FavoriteTeamSelectionRequest request
+    ) {
+        return profileSetupService.selectInitialFavoriteTeam(
+                authentication.getName(),
+                request.favoriteTeamId());
     }
 
     @Operation(summary = "Check whether a username is available")

@@ -8,6 +8,7 @@ public record UserResponse(
         String email,
         String nickname,
         String profileImageUrl,
+        Long favoriteTeamId,
         boolean onboardingCompleted
 ) {
 
@@ -18,6 +19,7 @@ public record UserResponse(
                 user.getEmail(),
                 user.getNickname(),
                 user.getProfileImageUrl(),
+                user.getFavoriteTeam() == null ? null : user.getFavoriteTeam().getId(),
                 user.isOnboardingCompleted());
     }
 }
