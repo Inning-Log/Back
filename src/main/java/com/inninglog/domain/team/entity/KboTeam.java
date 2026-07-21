@@ -1,11 +1,16 @@
 package com.inninglog.domain.team.entity;
 
+import com.inninglog.domain.stadium.entity.Stadium;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -46,8 +51,12 @@ public class KboTeam {
     @Column(name = "primary_color", length = 20)
     private String primaryColor;
 
-    @Column(name = "home_stadium_id")
-    private Long homeStadiumId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "home_stadium_id",
+            foreignKey = @ForeignKey(name = "fk_kbo_teams_home_stadium")
+    )
+    private Stadium homeStadium;
 
     @Column(name = "display_order", nullable = false)
     private Integer displayOrder;
@@ -70,7 +79,7 @@ public class KboTeam {
             String shortName,
             String logoUrl,
             String primaryColor,
-            Long homeStadiumId,
+            Stadium homeStadium,
             Integer displayOrder,
             boolean active
     ) {
@@ -79,7 +88,7 @@ public class KboTeam {
         this.shortName = shortName;
         this.logoUrl = logoUrl;
         this.primaryColor = primaryColor;
-        this.homeStadiumId = homeStadiumId;
+        this.homeStadium = homeStadium;
         this.displayOrder = displayOrder;
         this.active = active;
     }
@@ -129,8 +138,12 @@ public class KboTeam {
         return primaryColor;
     }
 
+    public Stadium getHomeStadium() {
+        return homeStadium;
+    }
+
     public Long getHomeStadiumId() {
-        return homeStadiumId;
+        return homeStadium == null ? null : homeStadium.getId();
     }
 
     public Integer getDisplayOrder() {
