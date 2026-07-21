@@ -51,7 +51,7 @@ public class OAuthLoginService {
 
     private LoginResult loginExistingUser(OAuthAccount account, GoogleUserInfo googleUserInfo) {
         User user = account.getUser();
-        user.updateGoogleProfile(googleUserInfo.email(), googleUserInfo.name(), googleUserInfo.picture());
+        user.updateGoogleProfile(googleUserInfo.email(), googleUserInfo.picture());
         account.updateEmail(googleUserInfo.email());
         return new LoginResult(user, false);
     }
@@ -59,7 +59,6 @@ public class OAuthLoginService {
     private LoginResult registerGoogleUser(GoogleUserInfo googleUserInfo) {
         User user = userRepository.save(new User(
                 googleUserInfo.email(),
-                googleUserInfo.name(),
                 googleUserInfo.picture()));
 
         oAuthAccountRepository.save(new OAuthAccount(

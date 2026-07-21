@@ -30,7 +30,36 @@ Content-Type: application/json
 ```
 
 The backend verifies the Google ID token, creates or finds the local user, and
-returns the Inning Log JWT. Configure the backend with:
+returns the Inning Log JWT. The frontend can check username availability with
+the returned access token:
+
+```http
+GET /api/auth/profile/username-availability?username=inning-user
+Authorization: Bearer INNING_LOG_JWT
+```
+
+```json
+{
+  "username": "inning-user",
+  "available": true
+}
+```
+
+After the availability check, set the unique username and non-unique nickname
+together:
+
+```http
+PUT /api/auth/profile
+Authorization: Bearer INNING_LOG_JWT
+Content-Type: application/json
+
+{
+  "username": "inning-user",
+  "nickname": "Inning Logger"
+}
+```
+
+Configure the backend with:
 
 ```env
 GOOGLE_CLIENT_ID=your-google-oauth-client-id

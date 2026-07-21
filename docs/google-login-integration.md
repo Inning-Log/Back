@@ -26,6 +26,8 @@ Backend
 
 ```http
 POST /api/auth/google
+GET  /api/auth/profile/username-availability
+PUT  /api/auth/profile
 GET  /api/auth/me
 ```
 
@@ -50,13 +52,45 @@ Content-Type: application/json
   "isNewUser": true,
   "user": {
     "id": 1,
+    "username": null,
     "email": "user@gmail.com",
-    "nickname": "User Name",
+    "nickname": null,
     "profileImageUrl": "https://...",
     "onboardingCompleted": false
   }
 }
 ```
+
+최초 로그인 후 반환된 서비스 JWT로 아이디 중복 여부를 확인한다.
+
+```http
+GET /api/auth/profile/username-availability?username=inning-user
+Authorization: Bearer INNING_LOG_JWT
+```
+
+```json
+{
+  "username": "inning-user",
+  "available": true
+}
+```
+
+중복 확인 후 아이디와 닉네임을 한 번에 설정한다.
+아이디(`username`)는 사용자 간 중복될 수 없고, 닉네임은 중복될 수 있다.
+중복 확인 이후 다른 사용자가 같은 아이디를 먼저 저장할 수 있으므로 최종 설정 API에서도 중복 여부를 다시 검증한다.
+
+```http
+PUT /api/auth/profile
+Authorization: Bearer INNING_LOG_JWT
+Content-Type: application/json
+
+{
+  "username": "inning-user",
+  "nickname": "Inning Logger"
+}
+```
+
+설정이 완료되면 응답의 `onboardingCompleted`가 `true`가 된다.
 
 백엔드는 Google ID Token에서 아래를 검증한다.
 
@@ -277,6 +311,49 @@ async function handleGoogleCredential(response: { credential: string }) {
 }
 ```
 
+온보딩 화면에서 아이디와 닉네임을 입력받은 뒤 프로필 설정 API를 호출한다.
+
+```ts
+async function setupProfile(accessToken: string, username: string, nickname: string) {
+  const result = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/profile`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ username, nickname }),
+  });
+
+  if (!result.ok) {
+    throw new Error("Profile setup failed");
+  }
+
+  return result.json();
+}
+```
+
+아이디 입력 중에는 중복 확인 API를 호출할 수 있다.
+
+```ts
+async function checkUsernameAvailability(accessToken: string, username: string) {
+  const query = new URLSearchParams({ username });
+  const result = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL}/api/auth/profile/username-availability?${query}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  if (!result.ok) {
+    throw new Error("Username availability check failed");
+  }
+
+  return result.json() as Promise<{ username: string; available: boolean }>;
+}
+```
+
 초기 MVP에서는 `localStorage` 저장으로 시작할 수 있다.
 추후 보안을 강화할 때는 refresh token + HttpOnly cookie 구조를 별도로 설계한다.
 
@@ -379,6 +456,8 @@ Frontend:
 - [ ] `response.credential`을 `/api/auth/google`로 전송
 - [ ] 반환된 `accessToken` 저장
 - [ ] `onboardingCompleted` 기준으로 화면 분기
+- [ ] `/api/auth/profile/username-availability`로 아이디 중복 확인
+- [ ] 온보딩에서 `username`, `nickname`을 `/api/auth/profile`로 전송
 
 ## References
 
