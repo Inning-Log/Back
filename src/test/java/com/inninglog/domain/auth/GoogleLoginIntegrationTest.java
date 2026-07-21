@@ -117,14 +117,65 @@ class GoogleLoginIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("inning-user"))
                 .andExpect(jsonPath("$.nickname").value("Inning Logger"))
-                .andExpect(jsonPath("$.onboardingCompleted").value(true));
+                .andExpect(jsonPath("$.onboardingCompleted").value(false));
 
         mockMvc.perform(get("/api/auth/me")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.user.username").value("inning-user"))
                 .andExpect(jsonPath("$.user.nickname").value("Inning Logger"))
+                .andExpect(jsonPath("$.user.onboardingCompleted").value(false));
+    }
+
+    @Test
+    void initialFavoriteTeamSelectionCompletesOnboarding() throws Exception {
+        String accessToken = login("favorite-team-selection");
+        setupProfile(accessToken, "favorite-team-user", "Team Fan")
+                .andExpect(status().isOk());
+
+        selectFavoriteTeam(accessToken, 3L)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favoriteTeamId").value(3))
+                .andExpect(jsonPath("$.onboardingCompleted").value(true));
+
+        mockMvc.perform(get("/api/auth/me")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.favoriteTeamId").value(3))
                 .andExpect(jsonPath("$.user.onboardingCompleted").value(true));
+    }
+
+    @Test
+    void initialFavoriteTeamSelectionRequiresProfileSetup() throws Exception {
+        String accessToken = login("favorite-team-without-profile");
+
+        selectFavoriteTeam(accessToken, 3L)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PROFILE_SETUP_REQUIRED"));
+    }
+
+    @Test
+    void initialFavoriteTeamCannotBeSelectedTwice() throws Exception {
+        String accessToken = login("favorite-team-twice");
+        setupProfile(accessToken, "favorite-team-twice", "Team Fan")
+                .andExpect(status().isOk());
+        selectFavoriteTeam(accessToken, 3L)
+                .andExpect(status().isOk());
+
+        selectFavoriteTeam(accessToken, 4L)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("FAVORITE_TEAM_ALREADY_SELECTED"));
+    }
+
+    @Test
+    void initialFavoriteTeamMustExistAndBeActive() throws Exception {
+        String accessToken = login("unknown-favorite-team");
+        setupProfile(accessToken, "unknown-favorite-team", "Team Fan")
+                .andExpect(status().isOk());
+
+        selectFavoriteTeam(accessToken, 9999L)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TEAM_NOT_FOUND"));
     }
 
     @Test
@@ -219,6 +270,20 @@ class GoogleLoginIntegrationTest {
         return mockMvc.perform(get("/api/auth/profile/username-availability")
                 .header("Authorization", "Bearer " + accessToken)
                 .queryParam("username", username));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions selectFavoriteTeam(
+            String accessToken,
+            Long favoriteTeamId
+    ) throws Exception {
+        return mockMvc.perform(post("/api/auth/profile/favorite-team")
+                .header("Authorization", "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "favoriteTeamId": %d
+                        }
+                        """.formatted(favoriteTeamId)));
     }
 
     @TestConfiguration

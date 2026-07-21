@@ -4,6 +4,8 @@ import com.inninglog.domain.auth.dto.UserResponse;
 import com.inninglog.domain.auth.dto.UsernameAvailabilityResponse;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.repository.UserRepository;
+import com.inninglog.domain.team.entity.KboTeam;
+import com.inninglog.domain.team.service.TeamQueryService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,9 +13,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProfileSetupService {
 
     private final UserRepository userRepository;
+    private final TeamQueryService teamQueryService;
 
-    public ProfileSetupService(UserRepository userRepository) {
+    public ProfileSetupService(UserRepository userRepository, TeamQueryService teamQueryService) {
         this.userRepository = userRepository;
+        this.teamQueryService = teamQueryService;
     }
 
     @Transactional
@@ -28,6 +32,15 @@ public class ProfileSetupService {
                 });
 
         user.setupProfile(normalizedUsername, nickname.trim());
+        return UserResponse.from(user);
+    }
+
+    @Transactional
+    public UserResponse selectInitialFavoriteTeam(String subject, Long favoriteTeamId) {
+        User user = findUser(subject);
+        KboTeam favoriteTeam = teamQueryService.getEntityById(favoriteTeamId);
+
+        user.selectInitialFavoriteTeam(favoriteTeam);
         return UserResponse.from(user);
     }
 

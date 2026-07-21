@@ -1,12 +1,17 @@
 package com.inninglog.domain.user.entity;
 
+import com.inninglog.domain.team.entity.KboTeam;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -31,6 +36,13 @@ public class User {
 
     @Column(length = 500)
     private String profileImageUrl;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "favorite_team_id",
+            foreignKey = @ForeignKey(name = "fk_app_users_favorite_team")
+    )
+    private KboTeam favoriteTeam;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
@@ -75,6 +87,16 @@ public class User {
     public void setupProfile(String username, String nickname) {
         this.username = username;
         this.nickname = nickname;
+    }
+
+    public void selectInitialFavoriteTeam(KboTeam favoriteTeam) {
+        if (username == null || username.isBlank() || nickname == null || nickname.isBlank()) {
+            throw new ProfileSetupRequiredException();
+        }
+        if (this.favoriteTeam != null) {
+            throw new FavoriteTeamAlreadySelectedException();
+        }
+        this.favoriteTeam = favoriteTeam;
         this.onboardingCompleted = true;
     }
 
@@ -96,6 +118,10 @@ public class User {
 
     public String getProfileImageUrl() {
         return profileImageUrl;
+    }
+
+    public KboTeam getFavoriteTeam() {
+        return favoriteTeam;
     }
 
     public UserRole getRole() {
