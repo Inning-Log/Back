@@ -40,6 +40,7 @@ public class SecurityConfig {
                                 "/api/health",
                                 "/api/auth/dev-token",
                                 "/api/auth/google",
+                                "/api/v1/teams",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html")
