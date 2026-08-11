@@ -5,11 +5,10 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
-public record ProfileSetupRequest(
+public record UsernameSetupRequest(
         @NotBlank
         @Size(max = UsernamePolicy.MAX_LENGTH)
         @Pattern(regexp = UsernamePolicy.PATTERN)
-        String username,
-        @NotBlank @Size(max = 80) String nickname
+        String username
 ) {
 }

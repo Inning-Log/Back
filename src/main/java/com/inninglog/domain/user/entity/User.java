@@ -28,7 +28,7 @@ public class User {
     @Column(nullable = false, length = 320)
     private String email;
 
-    @Column(unique = true, length = 80)
+    @Column(unique = true, length = 30)
     private String username;
 
     @Column(length = 80)
@@ -86,6 +86,17 @@ public class User {
 
     public void setupProfile(String username, String nickname) {
         this.username = username;
+        this.nickname = nickname;
+    }
+
+    public void setupOnboardingUsername(String username) {
+        this.username = username;
+    }
+
+    public void setupOnboardingNickname(String nickname) {
+        if (username == null || username.isBlank()) {
+            throw new ProfileSetupRequiredException();
+        }
         this.nickname = nickname;
     }
 
