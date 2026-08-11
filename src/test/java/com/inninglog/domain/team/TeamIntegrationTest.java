@@ -39,7 +39,7 @@ class TeamIntegrationTest {
 
     @Test
     void activeTeamListIsPublic() throws Exception {
-        mockMvc.perform(get("/api/v1/teams"))
+        mockMvc.perform(get("/api/teams"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(10))
                 .andExpect(jsonPath("$[0].teamCode").value("LG"))

@@ -34,7 +34,7 @@ class MyPageIntegrationTest {
     void myPageReturnsProfileAndFavoriteTeamDetails() throws Exception {
         String accessToken = completedUser("mypage-read", "mypage.read", 8L);
 
-        mockMvc.perform(get("/api/v1/mypage")
+        mockMvc.perform(get("/api/mypage")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nickname").value("Test Fan"))
@@ -49,19 +49,19 @@ class MyPageIntegrationTest {
         String firstToken = completedUser("mypage-profile-first", "mypage.first", 1L);
         String secondToken = completedUser("mypage-profile-second", "mypage.second", 2L);
 
-        mockMvc.perform(get("/api/v1/mypage/username-availability")
+        mockMvc.perform(get("/api/mypage/username-availability")
                         .header("Authorization", "Bearer " + secondToken)
                         .queryParam("username", "mypage.first"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available").value(false));
 
-        mockMvc.perform(get("/api/v1/mypage/username-availability")
+        mockMvc.perform(get("/api/mypage/username-availability")
                         .header("Authorization", "Bearer " + firstToken)
                         .queryParam("username", "mypage.first"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available").value(true));
 
-        mockMvc.perform(patch("/api/v1/mypage/profile")
+        mockMvc.perform(patch("/api/mypage/profile")
                         .header("Authorization", "Bearer " + firstToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -74,7 +74,7 @@ class MyPageIntegrationTest {
                 .andExpect(jsonPath("$.username").value("changed.user"))
                 .andExpect(jsonPath("$.nickname").value("Changed Fan"));
 
-        mockMvc.perform(patch("/api/v1/mypage/profile")
+        mockMvc.perform(patch("/api/mypage/profile")
                         .header("Authorization", "Bearer " + secondToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -91,7 +91,7 @@ class MyPageIntegrationTest {
     void favoriteTeamCanBeChangedAfterOnboarding() throws Exception {
         String accessToken = completedUser("mypage-team", "mypage.team", 8L);
 
-        mockMvc.perform(put("/api/v1/mypage/favorite-team")
+        mockMvc.perform(put("/api/mypage/favorite-team")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -109,7 +109,7 @@ class MyPageIntegrationTest {
         String credentialSuffix = "mypage-image";
         String accessToken = completedUser(credentialSuffix, "mypage.image", 5L);
 
-        mockMvc.perform(put("/api/v1/mypage/profile-image")
+        mockMvc.perform(put("/api/mypage/profile-image")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -122,7 +122,7 @@ class MyPageIntegrationTest {
                         .value("https://cdn.example.com/custom-profile.png"));
 
         String nextAccessToken = login(credentialSuffix);
-        mockMvc.perform(get("/api/v1/mypage")
+        mockMvc.perform(get("/api/mypage")
                         .header("Authorization", "Bearer " + nextAccessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profileImageUrl")
@@ -131,14 +131,14 @@ class MyPageIntegrationTest {
 
     @Test
     void myPageRequiresAuthentication() throws Exception {
-        mockMvc.perform(get("/api/v1/mypage"))
+        mockMvc.perform(get("/api/mypage"))
                 .andExpect(status().isUnauthorized());
     }
 
     private String completedUser(String credentialSuffix, String username, Long favoriteTeamId) throws Exception {
         String accessToken = login(credentialSuffix);
 
-        mockMvc.perform(put("/api/v1/onboarding/username")
+        mockMvc.perform(put("/api/onboarding/username")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -148,7 +148,7 @@ class MyPageIntegrationTest {
                                 """.formatted(username)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/v1/onboarding/nickname")
+        mockMvc.perform(put("/api/onboarding/nickname")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -158,7 +158,7 @@ class MyPageIntegrationTest {
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/v1/onboarding/favorite-team")
+        mockMvc.perform(put("/api/onboarding/favorite-team")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""

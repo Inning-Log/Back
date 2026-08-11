@@ -235,13 +235,13 @@ class GoogleLoginIntegrationTest {
     void onboardingApiPersistsEachScreenAndExposesTheNextStep() throws Exception {
         String accessToken = login("onboarding-flow");
 
-        mockMvc.perform(get("/api/v1/onboarding")
+        mockMvc.perform(get("/api/onboarding")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextStep").value("USERNAME"))
                 .andExpect(jsonPath("$.completed").value(false));
 
-        mockMvc.perform(put("/api/v1/onboarding/username")
+        mockMvc.perform(put("/api/onboarding/username")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -253,7 +253,7 @@ class GoogleLoginIntegrationTest {
                 .andExpect(jsonPath("$.nextStep").value("NICKNAME"))
                 .andExpect(jsonPath("$.user.username").value("onboarding.user"));
 
-        mockMvc.perform(put("/api/v1/onboarding/nickname")
+        mockMvc.perform(put("/api/onboarding/nickname")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -265,7 +265,7 @@ class GoogleLoginIntegrationTest {
                 .andExpect(jsonPath("$.nextStep").value("FAVORITE_TEAM"))
                 .andExpect(jsonPath("$.user.nickname").value("Inning Logger"));
 
-        mockMvc.perform(put("/api/v1/onboarding/favorite-team")
+        mockMvc.perform(put("/api/onboarding/favorite-team")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -283,7 +283,7 @@ class GoogleLoginIntegrationTest {
     void onboardingApiEnforcesScreenOrderAndLocksCompletedOnboarding() throws Exception {
         String accessToken = login("onboarding-order");
 
-        mockMvc.perform(put("/api/v1/onboarding/nickname")
+        mockMvc.perform(put("/api/onboarding/nickname")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -294,7 +294,7 @@ class GoogleLoginIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PROFILE_SETUP_REQUIRED"));
 
-        mockMvc.perform(put("/api/v1/onboarding/username")
+        mockMvc.perform(put("/api/onboarding/username")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -304,7 +304,7 @@ class GoogleLoginIntegrationTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        mockMvc.perform(put("/api/v1/onboarding/username")
+        mockMvc.perform(put("/api/onboarding/username")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -314,7 +314,7 @@ class GoogleLoginIntegrationTest {
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/v1/onboarding/nickname")
+        mockMvc.perform(put("/api/onboarding/nickname")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -324,7 +324,7 @@ class GoogleLoginIntegrationTest {
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/v1/onboarding/favorite-team")
+        mockMvc.perform(put("/api/onboarding/favorite-team")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -334,7 +334,7 @@ class GoogleLoginIntegrationTest {
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/v1/onboarding/nickname")
+        mockMvc.perform(put("/api/onboarding/nickname")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -350,7 +350,7 @@ class GoogleLoginIntegrationTest {
     void onboardingUsernameAvailabilityRejectsUnsupportedCharacters() throws Exception {
         String accessToken = login("onboarding-invalid-availability");
 
-        mockMvc.perform(get("/api/v1/onboarding/username-availability")
+        mockMvc.perform(get("/api/onboarding/username-availability")
                         .header("Authorization", "Bearer " + accessToken)
                         .queryParam("username", "invalid-handle"))
                 .andExpect(status().isBadRequest())
