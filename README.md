@@ -59,6 +59,27 @@ Content-Type: application/json
 }
 ```
 
+## Onboarding
+
+The screen-by-screen onboarding API persists each step independently, so a user
+can resume from the last completed screen. All endpoints require the Inning Log
+JWT returned by Google login.
+
+```http
+GET /api/v1/onboarding
+GET /api/v1/onboarding/username-availability?username=inning.user
+PUT /api/v1/onboarding/username
+PUT /api/v1/onboarding/nickname
+PUT /api/v1/onboarding/favorite-team
+Authorization: Bearer INNING_LOG_JWT
+```
+
+`GET /api/v1/onboarding` returns `nextStep` as `USERNAME`, `NICKNAME`,
+`FAVORITE_TEAM`, or `COMPLETED`. Usernames are stored without the UI's `@`
+prefix, normalized to lowercase, limited to 30 characters, and may contain only
+letters, numbers, periods, and underscores. `GET /api/v1/teams` supplies the
+active team list for the final screen.
+
 Configure the backend with:
 
 ```env
