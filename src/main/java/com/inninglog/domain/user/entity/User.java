@@ -81,7 +81,9 @@ public class User {
 
     public void updateGoogleProfile(String email, String profileImageUrl) {
         this.email = email;
-        this.profileImageUrl = profileImageUrl;
+        if (this.profileImageUrl == null || this.profileImageUrl.isBlank()) {
+            this.profileImageUrl = profileImageUrl;
+        }
     }
 
     public void setupProfile(String username, String nickname) {
@@ -98,6 +100,19 @@ public class User {
             throw new ProfileSetupRequiredException();
         }
         this.nickname = nickname;
+    }
+
+    public void updateProfile(String username, String nickname) {
+        this.username = username;
+        this.nickname = nickname;
+    }
+
+    public void updateFavoriteTeam(KboTeam favoriteTeam) {
+        this.favoriteTeam = favoriteTeam;
+    }
+
+    public void updateProfileImage(String profileImageUrl) {
+        this.profileImageUrl = profileImageUrl;
     }
 
     public void selectInitialFavoriteTeam(KboTeam favoriteTeam) {
