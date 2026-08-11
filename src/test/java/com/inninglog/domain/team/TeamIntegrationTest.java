@@ -34,7 +34,7 @@ class TeamIntegrationTest {
     void migrationSeedsTenActiveTeamsInDisplayOrder() {
         assertThat(teamRepository.findAllByActiveTrueOrderByDisplayOrderAsc())
                 .extracting(KboTeam::getTeamCode)
-                .containsExactly("NC", "LG", "OB", "KT", "SS", "WO", "HH", "HT", "SK", "LT");
+                .containsExactly("LG", "HH", "SK", "SS", "NC", "KT", "LT", "HT", "OB", "WO");
     }
 
     @Test
@@ -42,17 +42,17 @@ class TeamIntegrationTest {
         mockMvc.perform(get("/api/v1/teams"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(10))
-                .andExpect(jsonPath("$[0].teamCode").value("NC"))
-                .andExpect(jsonPath("$[0].name").value("NC Dinos"))
+                .andExpect(jsonPath("$[0].teamCode").value("LG"))
+                .andExpect(jsonPath("$[0].name").value("LG 트윈스"))
                 .andExpect(jsonPath("$[0].displayOrder").value(1))
-                .andExpect(jsonPath("$[9].teamCode").value("LT"));
+                .andExpect(jsonPath("$[9].teamCode").value("WO"));
     }
 
     @Test
     void teamCodeLookupNormalizesWhitespaceAndCase() {
         KboTeam team = teamQueryService.getEntityByCode("  ob  ");
 
-        assertThat(team.getName()).isEqualTo("Doosan Bears");
+        assertThat(team.getName()).isEqualTo("두산 베어스");
     }
 
     @Test
