@@ -110,19 +110,19 @@ class GoogleLoginIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "username": "  inning-user  ",
+                                  "username": "  inning.user  ",
                                   "nickname": "  Inning Logger  "
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value("inning-user"))
+                .andExpect(jsonPath("$.username").value("inning.user"))
                 .andExpect(jsonPath("$.nickname").value("Inning Logger"))
                 .andExpect(jsonPath("$.onboardingCompleted").value(false));
 
         mockMvc.perform(get("/api/auth/me")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.user.username").value("inning-user"))
+                .andExpect(jsonPath("$.user.username").value("inning.user"))
                 .andExpect(jsonPath("$.user.nickname").value("Inning Logger"))
                 .andExpect(jsonPath("$.user.onboardingCompleted").value(false));
     }
@@ -130,7 +130,7 @@ class GoogleLoginIntegrationTest {
     @Test
     void initialFavoriteTeamSelectionCompletesOnboarding() throws Exception {
         String accessToken = login("favorite-team-selection");
-        setupProfile(accessToken, "favorite-team-user", "Team Fan")
+        setupProfile(accessToken, "favorite_team_user", "Team Fan")
                 .andExpect(status().isOk());
 
         selectFavoriteTeam(accessToken, 3L)
@@ -157,7 +157,7 @@ class GoogleLoginIntegrationTest {
     @Test
     void initialFavoriteTeamCannotBeSelectedTwice() throws Exception {
         String accessToken = login("favorite-team-twice");
-        setupProfile(accessToken, "favorite-team-twice", "Team Fan")
+        setupProfile(accessToken, "favorite_team_twice", "Team Fan")
                 .andExpect(status().isOk());
         selectFavoriteTeam(accessToken, 3L)
                 .andExpect(status().isOk());
@@ -170,7 +170,7 @@ class GoogleLoginIntegrationTest {
     @Test
     void initialFavoriteTeamMustExistAndBeActive() throws Exception {
         String accessToken = login("unknown-favorite-team");
-        setupProfile(accessToken, "unknown-favorite-team", "Team Fan")
+        setupProfile(accessToken, "unknown_favorite_team", "Team Fan")
                 .andExpect(status().isOk());
 
         selectFavoriteTeam(accessToken, 9999L)
@@ -183,16 +183,16 @@ class GoogleLoginIntegrationTest {
         String firstAccessToken = login("duplicate-username-first");
         String secondAccessToken = login("duplicate-username-second");
 
-        setupProfile(firstAccessToken, "unique-username", "Same Nickname")
+        setupProfile(firstAccessToken, "unique_username", "Same Nickname")
                 .andExpect(status().isOk());
 
-        setupProfile(secondAccessToken, "unique-username", "Different Nickname")
+        setupProfile(secondAccessToken, "unique_username", "Different Nickname")
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("USERNAME_ALREADY_EXISTS"));
 
-        setupProfile(secondAccessToken, "another-username", "Same Nickname")
+        setupProfile(secondAccessToken, "another_username", "Same Nickname")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value("another-username"))
+                .andExpect(jsonPath("$.username").value("another_username"))
                 .andExpect(jsonPath("$.nickname").value("Same Nickname"));
     }
 
@@ -201,19 +201,19 @@ class GoogleLoginIntegrationTest {
         String firstAccessToken = login("availability-first");
         String secondAccessToken = login("availability-second");
 
-        checkUsernameAvailability(firstAccessToken, "  available-username  ")
+        checkUsernameAvailability(firstAccessToken, "  available.username  ")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value("available-username"))
+                .andExpect(jsonPath("$.username").value("available.username"))
                 .andExpect(jsonPath("$.available").value(true));
 
-        setupProfile(firstAccessToken, "available-username", "First Nickname")
+        setupProfile(firstAccessToken, "available.username", "First Nickname")
                 .andExpect(status().isOk());
 
-        checkUsernameAvailability(secondAccessToken, "available-username")
+        checkUsernameAvailability(secondAccessToken, "available.username")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available").value(false));
 
-        checkUsernameAvailability(firstAccessToken, "available-username")
+        checkUsernameAvailability(firstAccessToken, "available.username")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available").value(true));
     }
@@ -224,11 +224,137 @@ class GoogleLoginIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "username": "inning-user",
+                                  "username": "inning.user",
                                   "nickname": "Inning Logger"
                                 }
                                 """))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void onboardingApiPersistsEachScreenAndExposesTheNextStep() throws Exception {
+        String accessToken = login("onboarding-flow");
+
+        mockMvc.perform(get("/api/v1/onboarding")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextStep").value("USERNAME"))
+                .andExpect(jsonPath("$.completed").value(false));
+
+        mockMvc.perform(put("/api/v1/onboarding/username")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "  Onboarding.User  "
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextStep").value("NICKNAME"))
+                .andExpect(jsonPath("$.user.username").value("onboarding.user"));
+
+        mockMvc.perform(put("/api/v1/onboarding/nickname")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nickname": "  Inning Logger  "
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextStep").value("FAVORITE_TEAM"))
+                .andExpect(jsonPath("$.user.nickname").value("Inning Logger"));
+
+        mockMvc.perform(put("/api/v1/onboarding/favorite-team")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "favoriteTeamId": 8
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextStep").value("COMPLETED"))
+                .andExpect(jsonPath("$.completed").value(true))
+                .andExpect(jsonPath("$.user.favoriteTeamId").value(8));
+    }
+
+    @Test
+    void onboardingApiEnforcesScreenOrderAndLocksCompletedOnboarding() throws Exception {
+        String accessToken = login("onboarding-order");
+
+        mockMvc.perform(put("/api/v1/onboarding/nickname")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nickname": "Team Fan"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PROFILE_SETUP_REQUIRED"));
+
+        mockMvc.perform(put("/api/v1/onboarding/username")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "invalid-handle"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(put("/api/v1/onboarding/username")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "valid_handle"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/v1/onboarding/nickname")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nickname": "Team Fan"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/v1/onboarding/favorite-team")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "favoriteTeamId": 3
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/v1/onboarding/nickname")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nickname": "Changed"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ONBOARDING_ALREADY_COMPLETED"));
+    }
+
+    @Test
+    void onboardingUsernameAvailabilityRejectsUnsupportedCharacters() throws Exception {
+        String accessToken = login("onboarding-invalid-availability");
+
+        mockMvc.perform(get("/api/v1/onboarding/username-availability")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .queryParam("username", "invalid-handle"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     private String login(String credentialSuffix) throws Exception {

@@ -2,9 +2,11 @@ package com.inninglog.domain.auth.controller;
 
 import com.inninglog.domain.auth.service.AuthUserNotFoundException;
 import com.inninglog.domain.auth.service.DuplicateUsernameException;
+import com.inninglog.domain.auth.service.OnboardingAlreadyCompletedException;
 import com.inninglog.domain.team.service.TeamNotFoundException;
 import com.inninglog.domain.user.entity.FavoriteTeamAlreadySelectedException;
 import com.inninglog.domain.user.entity.ProfileSetupRequiredException;
+import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
 
 import org.springframework.http.HttpStatus;
@@ -13,7 +15,7 @@ import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@RestControllerAdvice(assignableTypes = AuthController.class)
+@RestControllerAdvice(assignableTypes = {AuthController.class, OnboardingController.class})
 public class AuthExceptionHandler {
 
     @ExceptionHandler(BadJwtException.class)
@@ -61,6 +63,23 @@ public class AuthExceptionHandler {
     ) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new AuthErrorResponse("FAVORITE_TEAM_ALREADY_SELECTED", exception.getMessage(), Instant.now()));
+    }
+
+    @ExceptionHandler(OnboardingAlreadyCompletedException.class)
+    public ResponseEntity<AuthErrorResponse> handleOnboardingAlreadyCompleted(
+            OnboardingAlreadyCompletedException exception
+    ) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new AuthErrorResponse(
+                        "ONBOARDING_ALREADY_COMPLETED",
+                        exception.getMessage(),
+                        Instant.now()));
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<AuthErrorResponse> handleConstraintViolation(ConstraintViolationException exception) {
+        return ResponseEntity.badRequest()
+                .body(new AuthErrorResponse("INVALID_REQUEST", exception.getMessage(), Instant.now()));
     }
 
     public record AuthErrorResponse(String code, String message, Instant timestamp) {

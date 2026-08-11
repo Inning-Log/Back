@@ -28,7 +28,7 @@ public class User {
     @Column(nullable = false, length = 320)
     private String email;
 
-    @Column(unique = true, length = 80)
+    @Column(unique = true, length = 30)
     private String username;
 
     @Column(length = 80)
@@ -81,12 +81,38 @@ public class User {
 
     public void updateGoogleProfile(String email, String profileImageUrl) {
         this.email = email;
-        this.profileImageUrl = profileImageUrl;
+        if (this.profileImageUrl == null || this.profileImageUrl.isBlank()) {
+            this.profileImageUrl = profileImageUrl;
+        }
     }
 
     public void setupProfile(String username, String nickname) {
         this.username = username;
         this.nickname = nickname;
+    }
+
+    public void setupOnboardingUsername(String username) {
+        this.username = username;
+    }
+
+    public void setupOnboardingNickname(String nickname) {
+        if (username == null || username.isBlank()) {
+            throw new ProfileSetupRequiredException();
+        }
+        this.nickname = nickname;
+    }
+
+    public void updateProfile(String username, String nickname) {
+        this.username = username;
+        this.nickname = nickname;
+    }
+
+    public void updateFavoriteTeam(KboTeam favoriteTeam) {
+        this.favoriteTeam = favoriteTeam;
+    }
+
+    public void updateProfileImage(String profileImageUrl) {
+        this.profileImageUrl = profileImageUrl;
     }
 
     public void selectInitialFavoriteTeam(KboTeam favoriteTeam) {

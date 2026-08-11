@@ -9,11 +9,13 @@ import com.inninglog.domain.auth.dto.UserResponse;
 import com.inninglog.domain.auth.dto.UsernameAvailabilityResponse;
 import com.inninglog.domain.auth.service.OAuthLoginService;
 import com.inninglog.domain.auth.service.ProfileSetupService;
+import com.inninglog.domain.auth.service.UsernamePolicy;
 import com.inninglog.domain.user.repository.UserRepository;
 import com.inninglog.global.security.JwtTokenProvider;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.Collection;
 import java.util.Objects;
@@ -101,7 +103,11 @@ public class AuthController {
     @GetMapping("/profile/username-availability")
     public UsernameAvailabilityResponse checkUsernameAvailability(
             JwtAuthenticationToken authentication,
-            @RequestParam @NotBlank @Size(max = 80) String username
+            @RequestParam
+            @NotBlank
+            @Size(max = UsernamePolicy.MAX_LENGTH)
+            @Pattern(regexp = UsernamePolicy.PATTERN)
+            String username
     ) {
         return profileSetupService.checkUsernameAvailability(authentication.getName(), username);
     }
