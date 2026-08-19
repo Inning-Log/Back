@@ -1,6 +1,8 @@
 package com.inninglog.domain.user.entity;
 
 import com.inninglog.domain.team.entity.KboTeam;
+import com.inninglog.domain.user.exception.FavoriteTeamAlreadySelectedException;
+import com.inninglog.domain.user.exception.ProfileSetupRequiredException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

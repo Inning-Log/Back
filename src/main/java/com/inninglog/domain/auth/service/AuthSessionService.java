@@ -1,9 +1,12 @@
 package com.inninglog.domain.auth.service;
 
 import com.inninglog.domain.auth.entity.AuthRefreshToken;
+import com.inninglog.domain.auth.exception.InvalidRefreshTokenException;
 import com.inninglog.domain.auth.repository.AuthRefreshTokenRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.entity.UserRole;
+import com.inninglog.domain.user.exception.AccountDeletedException;
+import com.inninglog.domain.user.exception.UserNotFoundException;
 import com.inninglog.domain.user.repository.UserRepository;
 import com.inninglog.global.security.JwtTokenProvider;
 import com.inninglog.global.security.RefreshTokenCodec;
@@ -117,13 +120,13 @@ public class AuthSessionService {
     private User lockUser(String subject) {
         try {
             User user = userRepository.findByIdForUpdate(Long.valueOf(subject))
-                    .orElseThrow(AuthUserNotFoundException::new);
+                    .orElseThrow(UserNotFoundException::new);
             if (user.isDeleted()) {
                 throw new AccountDeletedException();
             }
             return user;
         } catch (NumberFormatException exception) {
-            throw new AuthUserNotFoundException();
+            throw new UserNotFoundException();
         }
     }
 

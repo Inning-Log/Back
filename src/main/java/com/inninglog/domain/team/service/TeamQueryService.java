@@ -2,6 +2,7 @@ package com.inninglog.domain.team.service;
 
 import com.inninglog.domain.team.dto.TeamSummaryResponse;
 import com.inninglog.domain.team.entity.KboTeam;
+import com.inninglog.domain.team.exception.TeamNotFoundException;
 import com.inninglog.domain.team.repository.KboTeamRepository;
 import java.util.List;
 import java.util.Locale;

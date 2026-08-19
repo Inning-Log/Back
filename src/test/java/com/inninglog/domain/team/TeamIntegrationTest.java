@@ -7,7 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.inninglog.domain.team.entity.KboTeam;
 import com.inninglog.domain.team.repository.KboTeamRepository;
-import com.inninglog.domain.team.service.TeamNotFoundException;
+import com.inninglog.domain.team.exception.TeamNotFoundException;
 import com.inninglog.domain.team.service.TeamQueryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

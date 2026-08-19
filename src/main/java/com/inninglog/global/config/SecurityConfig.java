@@ -1,6 +1,6 @@
 package com.inninglog.global.config;
 
-import com.inninglog.domain.auth.service.GoogleOAuthProperties;
+import com.inninglog.domain.oauth.google.GoogleOAuthProperties;
 import com.inninglog.global.security.JwtProperties;
 import com.inninglog.global.security.SessionJwtValidator;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;

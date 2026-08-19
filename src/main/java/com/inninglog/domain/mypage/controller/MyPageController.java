@@ -1,6 +1,6 @@
 package com.inninglog.domain.mypage.controller;
 
-import com.inninglog.domain.auth.service.UsernamePolicy;
+import com.inninglog.domain.user.service.UsernamePolicy;
 import com.inninglog.domain.mypage.dto.FavoriteTeamUpdateRequest;
 import com.inninglog.domain.mypage.dto.MyPageResponse;
 import com.inninglog.domain.mypage.dto.ProfileImageUpdateRequest;

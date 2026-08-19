@@ -1,9 +1,9 @@
 package com.inninglog.domain.mypage.service;
 
-import com.inninglog.domain.auth.service.AuthUserNotFoundException;
-import com.inninglog.domain.auth.service.AccountDeletedException;
-import com.inninglog.domain.auth.service.DuplicateUsernameException;
-import com.inninglog.domain.auth.service.UsernamePolicy;
+import com.inninglog.domain.user.exception.AccountDeletedException;
+import com.inninglog.domain.user.exception.DuplicateUsernameException;
+import com.inninglog.domain.user.exception.UserNotFoundException;
+import com.inninglog.domain.user.service.UsernamePolicy;
 import com.inninglog.domain.mypage.dto.MyPageResponse;
 import com.inninglog.domain.mypage.dto.UsernameAvailabilityResponse;
 import com.inninglog.domain.team.entity.KboTeam;
@@ -78,22 +78,22 @@ public class MyPageService {
     private User findUser(String subject) {
         try {
             return userRepository.findByIdAndDeletedAtIsNull(Long.valueOf(subject))
-                    .orElseThrow(AuthUserNotFoundException::new);
+                    .orElseThrow(UserNotFoundException::new);
         } catch (NumberFormatException exception) {
-            throw new AuthUserNotFoundException();
+            throw new UserNotFoundException();
         }
     }
 
     private User lockUser(String subject) {
         try {
             User user = userRepository.findByIdForUpdate(Long.valueOf(subject))
-                    .orElseThrow(AuthUserNotFoundException::new);
+                    .orElseThrow(UserNotFoundException::new);
             if (user.isDeleted()) {
                 throw new AccountDeletedException();
             }
             return user;
         } catch (NumberFormatException exception) {
-            throw new AuthUserNotFoundException();
+            throw new UserNotFoundException();
         }
     }
 }

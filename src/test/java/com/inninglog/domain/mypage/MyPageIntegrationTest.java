@@ -7,8 +7,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.inninglog.domain.auth.service.GoogleIdentityTokenVerifier;
-import com.inninglog.domain.auth.service.GoogleUserInfo;
+import com.inninglog.domain.oauth.google.GoogleIdentityTokenVerifier;
+import com.inninglog.domain.oauth.google.GoogleUserInfo;
+import com.inninglog.domain.oauth.exception.InvalidGoogleTokenException;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +19,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
-import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -195,7 +195,7 @@ class MyPageIntegrationTest {
         GoogleIdentityTokenVerifier testGoogleIdentityTokenVerifier() {
             return credential -> {
                 if (!credential.startsWith("valid-")) {
-                    throw new BadJwtException("Invalid Google ID token.");
+                    throw new InvalidGoogleTokenException("Invalid Google ID token.");
                 }
                 return new GoogleUserInfo(
                         "google-sub-" + credential,

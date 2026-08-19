@@ -8,14 +8,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.inninglog.domain.auth.service.AccountDeletionService;
-import com.inninglog.domain.auth.service.AccountDeletedException;
 import com.inninglog.domain.auth.service.AuthSessionService;
-import com.inninglog.domain.auth.service.GoogleIdentityTokenVerifier;
-import com.inninglog.domain.auth.service.GoogleUserInfo;
-import com.inninglog.domain.auth.service.InvalidRefreshTokenException;
+import com.inninglog.domain.auth.exception.InvalidRefreshTokenException;
+import com.inninglog.domain.oauth.google.GoogleIdentityTokenVerifier;
+import com.inninglog.domain.oauth.google.GoogleUserInfo;
+import com.inninglog.domain.oauth.exception.InvalidGoogleTokenException;
 import com.inninglog.domain.user.entity.User;
+import com.inninglog.domain.user.exception.AccountDeletedException;
 import com.inninglog.domain.user.repository.UserRepository;
+import com.inninglog.domain.user.service.AccountDeletionService;
 import com.inninglog.domain.mypage.service.MyPageService;
 import com.jayway.jsonpath.JsonPath;
 import java.util.ArrayList;
@@ -35,7 +36,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
-import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -363,7 +363,7 @@ class AuthSessionIntegrationTest {
         GoogleIdentityTokenVerifier testGoogleIdentityTokenVerifier() {
             return credential -> {
                 if (!credential.startsWith("valid-session-")) {
-                    throw new BadJwtException("Invalid Google ID token.");
+                    throw new InvalidGoogleTokenException("Invalid Google ID token.");
                 }
                 return new GoogleUserInfo(
                         "google-sub-" + credential,
