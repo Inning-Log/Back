@@ -1,5 +1,6 @@
 package com.inninglog.domain.auth.controller;
 
+import com.inninglog.domain.auth.config.AuthProperties;
 import com.inninglog.domain.auth.dto.CurrentUserResponse;
 import com.inninglog.domain.auth.dto.RefreshTokenRequest;
 import com.inninglog.domain.auth.dto.TokenPairResponse;
@@ -21,7 +22,6 @@ import java.util.Collection;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -39,18 +39,18 @@ public class AuthSessionController {
     private final JwtTokenProvider jwtTokenProvider;
     private final AuthSessionService authSessionService;
     private final UserRepository userRepository;
-    private final boolean devTokenEnabled;
+    private final AuthProperties authProperties;
 
     public AuthSessionController(
             JwtTokenProvider jwtTokenProvider,
             AuthSessionService authSessionService,
             UserRepository userRepository,
-            @Value("${app.auth.dev-token-enabled:false}") boolean devTokenEnabled
+            AuthProperties authProperties
     ) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.authSessionService = authSessionService;
         this.userRepository = userRepository;
-        this.devTokenEnabled = devTokenEnabled;
+        this.authProperties = authProperties;
     }
 
     @Operation(
@@ -68,7 +68,7 @@ public class AuthSessionController {
     public ResponseEntity<JwtTokenProvider.IssuedToken> issueDevToken(
             @Valid @RequestBody DevTokenRequest request
     ) {
-        if (!devTokenEnabled) {
+        if (!authProperties.devTokenEnabled()) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(jwtTokenProvider.issue(request.subject(), request.normalizedRoles()));

@@ -1,5 +1,6 @@
 package com.inninglog.domain.auth.service;
 
+import com.inninglog.domain.auth.config.AuthProperties;
 import com.inninglog.domain.auth.entity.AuthRefreshToken;
 import com.inninglog.domain.auth.exception.InvalidRefreshTokenException;
 import com.inninglog.domain.auth.repository.AuthRefreshTokenRepository;
@@ -11,10 +12,8 @@ import com.inninglog.domain.user.repository.UserRepository;
 import com.inninglog.global.security.JwtTokenProvider;
 import com.inninglog.global.security.RefreshTokenCodec;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,7 +25,7 @@ public class AuthSessionService {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenCodec refreshTokenCodec;
     private final Clock clock;
-    private final Duration refreshTokenExpiration;
+    private final AuthProperties authProperties;
 
     public AuthSessionService(
             AuthRefreshTokenRepository refreshTokenRepository,
@@ -34,14 +33,14 @@ public class AuthSessionService {
             JwtTokenProvider jwtTokenProvider,
             RefreshTokenCodec refreshTokenCodec,
             Clock clock,
-            @Value("${app.auth.refresh-token-expiration:30d}") Duration refreshTokenExpiration
+            AuthProperties authProperties
     ) {
         this.refreshTokenRepository = refreshTokenRepository;
         this.userRepository = userRepository;
         this.jwtTokenProvider = jwtTokenProvider;
         this.refreshTokenCodec = refreshTokenCodec;
         this.clock = clock;
-        this.refreshTokenExpiration = refreshTokenExpiration;
+        this.authProperties = authProperties;
     }
 
     @Transactional
@@ -52,7 +51,7 @@ public class AuthSessionService {
 
         Instant now = clock.instant();
         String rawRefreshToken = refreshTokenCodec.generate();
-        Instant refreshExpiresAt = now.plus(refreshTokenExpiration);
+        Instant refreshExpiresAt = now.plus(authProperties.refreshTokenExpiration());
         AuthRefreshToken session = refreshTokenRepository.saveAndFlush(new AuthRefreshToken(
                 user,
                 refreshTokenCodec.hash(rawRefreshToken),
@@ -83,7 +82,7 @@ public class AuthSessionService {
         }
 
         String rotatedRefreshToken = refreshTokenCodec.generate();
-        Instant refreshExpiresAt = now.plus(refreshTokenExpiration);
+        Instant refreshExpiresAt = now.plus(authProperties.refreshTokenExpiration());
         session.rotate(refreshTokenCodec.hash(rotatedRefreshToken), refreshExpiresAt, now);
 
         return issueTokens(user, session, rotatedRefreshToken);
