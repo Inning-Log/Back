@@ -6,10 +6,7 @@ import com.inninglog.domain.auth.entity.AuthProvider;
 import com.inninglog.domain.auth.entity.OAuthAccount;
 import com.inninglog.domain.auth.repository.OAuthAccountRepository;
 import com.inninglog.domain.user.entity.User;
-import com.inninglog.domain.user.entity.UserRole;
 import com.inninglog.domain.user.repository.UserRepository;
-import com.inninglog.global.security.JwtTokenProvider;
-import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,18 +16,18 @@ public class OAuthLoginService {
     private final GoogleIdentityTokenVerifier googleIdentityTokenVerifier;
     private final UserRepository userRepository;
     private final OAuthAccountRepository oAuthAccountRepository;
-    private final JwtTokenProvider jwtTokenProvider;
+    private final AuthSessionService authSessionService;
 
     public OAuthLoginService(
             GoogleIdentityTokenVerifier googleIdentityTokenVerifier,
             UserRepository userRepository,
             OAuthAccountRepository oAuthAccountRepository,
-            JwtTokenProvider jwtTokenProvider
+            AuthSessionService authSessionService
     ) {
         this.googleIdentityTokenVerifier = googleIdentityTokenVerifier;
         this.userRepository = userRepository;
         this.oAuthAccountRepository = oAuthAccountRepository;
-        this.jwtTokenProvider = jwtTokenProvider;
+        this.authSessionService = authSessionService;
     }
 
     @Transactional
@@ -42,15 +39,17 @@ public class OAuthLoginService {
                 .map(account -> loginExistingUser(account, googleUserInfo))
                 .orElseGet(() -> registerGoogleUser(googleUserInfo));
 
-        JwtTokenProvider.IssuedToken token = jwtTokenProvider.issue(
-                String.valueOf(loginResult.user().getId()),
-                Set.of(UserRole.USER.name()));
+        AuthSessionService.SessionTokens tokens = authSessionService.createSession(loginResult.user());
 
-        return LoginResponse.of(token, loginResult.isNewUser(), UserResponse.from(loginResult.user()));
+        return LoginResponse.of(tokens, loginResult.isNewUser(), UserResponse.from(loginResult.user()));
     }
 
     private LoginResult loginExistingUser(OAuthAccount account, GoogleUserInfo googleUserInfo) {
-        User user = account.getUser();
+        User user = userRepository.findByIdForUpdate(account.getUser().getId())
+                .orElseThrow(AuthUserNotFoundException::new);
+        if (user.isDeleted()) {
+            throw new AccountDeletedException();
+        }
         user.updateGoogleProfile(googleUserInfo.email(), googleUserInfo.picture());
         account.updateEmail(googleUserInfo.email());
         return new LoginResult(user, false);

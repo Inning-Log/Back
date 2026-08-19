@@ -4,10 +4,13 @@ import com.inninglog.domain.auth.dto.CurrentUserResponse;
 import com.inninglog.domain.auth.dto.FavoriteTeamSelectionRequest;
 import com.inninglog.domain.auth.dto.GoogleLoginRequest;
 import com.inninglog.domain.auth.dto.LoginResponse;
+import com.inninglog.domain.auth.dto.RefreshTokenRequest;
+import com.inninglog.domain.auth.dto.TokenPairResponse;
 import com.inninglog.domain.auth.dto.ProfileSetupRequest;
 import com.inninglog.domain.auth.dto.UserResponse;
 import com.inninglog.domain.auth.dto.UsernameAvailabilityResponse;
 import com.inninglog.domain.auth.service.OAuthLoginService;
+import com.inninglog.domain.auth.service.AuthSessionService;
 import com.inninglog.domain.auth.service.ProfileSetupService;
 import com.inninglog.domain.auth.service.UsernamePolicy;
 import com.inninglog.domain.user.repository.UserRepository;
@@ -49,6 +52,7 @@ public class AuthController {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final OAuthLoginService oAuthLoginService;
+    private final AuthSessionService authSessionService;
     private final ProfileSetupService profileSetupService;
     private final UserRepository userRepository;
     private final boolean devTokenEnabled;
@@ -56,12 +60,14 @@ public class AuthController {
     public AuthController(
             JwtTokenProvider jwtTokenProvider,
             OAuthLoginService oAuthLoginService,
+            AuthSessionService authSessionService,
             ProfileSetupService profileSetupService,
             UserRepository userRepository,
             @Value("${app.auth.dev-token-enabled:false}") boolean devTokenEnabled
     ) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.oAuthLoginService = oAuthLoginService;
+        this.authSessionService = authSessionService;
         this.profileSetupService = profileSetupService;
         this.userRepository = userRepository;
         this.devTokenEnabled = devTokenEnabled;
@@ -109,6 +115,11 @@ public class AuthController {
                     content = @Content(schema = @Schema(implementation = AuthExceptionHandler.AuthErrorResponse.class))
             ),
             @ApiResponse(
+                    responseCode = "403",
+                    description = "이미 탈퇴 처리된 Google 계정임",
+                    content = @Content(schema = @Schema(implementation = AuthExceptionHandler.AuthErrorResponse.class))
+            ),
+            @ApiResponse(
                     responseCode = "503",
                     description = "Google OAuth 클라이언트 설정이 누락됨",
                     content = @Content(schema = @Schema(implementation = AuthExceptionHandler.AuthErrorResponse.class))
@@ -117,6 +128,62 @@ public class AuthController {
     @PostMapping("/google")
     public LoginResponse loginWithGoogle(@Valid @RequestBody GoogleLoginRequest request) {
         return oAuthLoginService.loginWithGoogle(request.credential());
+    }
+
+    @Operation(
+            summary = "서비스 토큰 갱신",
+            description = "Refresh Token을 한 번만 사용할 수 있도록 회전하고 새 Access/Refresh Token 쌍을 반환합니다."
+    )
+    @SecurityRequirements
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "토큰 회전 성공. 이전 Access Token과 Refresh Token은 즉시 무효화됨",
+                    content = @Content(schema = @Schema(implementation = TokenPairResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Refresh Token이 비어 있거나 허용 길이를 초과함", content = @Content),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "Refresh Token이 만료·회전·폐기됐거나 탈퇴한 사용자의 토큰임",
+                    content = @Content(schema = @Schema(implementation = AuthExceptionHandler.AuthErrorResponse.class))
+            )
+    })
+    @PostMapping("/refresh")
+    public TokenPairResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return TokenPairResponse.from(authSessionService.refresh(request.refreshToken()));
+    }
+
+    @Operation(
+            summary = "현재 세션 로그아웃",
+            description = "현재 Access Token이 속한 로그인 세션을 폐기합니다. 같은 세션의 Access/Refresh Token은 즉시 사용할 수 없습니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "현재 세션 폐기 완료"),
+            @ApiResponse(responseCode = "401", description = "JWT가 없거나 이미 무효화됨", content = @Content)
+    })
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(JwtAuthenticationToken authentication) {
+        authSessionService.logout(authentication.getName(), sessionId(authentication));
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(
+            summary = "모든 세션 로그아웃",
+            description = "현재 사용자의 모든 로그인 세션을 폐기하여 모든 기기의 Access/Refresh Token을 즉시 무효화합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "전체 세션 폐기 완료"),
+            @ApiResponse(responseCode = "401", description = "JWT가 없거나 이미 무효화됨", content = @Content),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "JWT의 사용자 정보가 DB에 존재하지 않음",
+                    content = @Content(schema = @Schema(implementation = AuthExceptionHandler.AuthErrorResponse.class))
+            )
+    })
+    @PostMapping("/logout-all")
+    public ResponseEntity<Void> logoutAll(JwtAuthenticationToken authentication) {
+        authSessionService.logoutAll(authentication.getName());
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(
@@ -244,12 +311,17 @@ public class AuthController {
     private UserResponse findUser(String subject) {
         try {
             Long userId = Long.valueOf(subject);
-            return userRepository.findById(userId)
+            return userRepository.findByIdAndDeletedAtIsNull(userId)
                     .map(UserResponse::from)
                     .orElse(null);
         } catch (NumberFormatException exception) {
             return null;
         }
+    }
+
+    private static Long sessionId(JwtAuthenticationToken authentication) {
+        Object value = authentication.getToken().getClaim("sid");
+        return value instanceof Number number ? number.longValue() : null;
     }
 
     @Schema(description = "개발용 JWT 발급 요청")

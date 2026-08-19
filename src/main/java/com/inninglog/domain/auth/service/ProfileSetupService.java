@@ -23,7 +23,7 @@ public class ProfileSetupService {
 
     @Transactional
     public UserResponse setup(String subject, String username, String nickname) {
-        User user = findUser(subject);
+        User user = lockUser(subject);
         String normalizedUsername = UsernamePolicy.normalize(username);
 
         validateUsernameAvailable(user, normalizedUsername);
@@ -65,7 +65,7 @@ public class ProfileSetupService {
 
     @Transactional
     public UserResponse selectInitialFavoriteTeam(String subject, Long favoriteTeamId) {
-        User user = findUser(subject);
+        User user = lockUser(subject);
         KboTeam favoriteTeam = teamQueryService.getEntityById(favoriteTeamId);
 
         user.selectInitialFavoriteTeam(favoriteTeam);
@@ -92,7 +92,7 @@ public class ProfileSetupService {
     }
 
     private User findOnboardingUser(String subject) {
-        User user = findUser(subject);
+        User user = lockUser(subject);
         if (user.isOnboardingCompleted()) {
             throw new OnboardingAlreadyCompletedException();
         }
@@ -101,8 +101,21 @@ public class ProfileSetupService {
 
     private User findUser(String subject) {
         try {
-            return userRepository.findById(Long.valueOf(subject))
+            return userRepository.findByIdAndDeletedAtIsNull(Long.valueOf(subject))
                     .orElseThrow(AuthUserNotFoundException::new);
+        } catch (NumberFormatException exception) {
+            throw new AuthUserNotFoundException();
+        }
+    }
+
+    private User lockUser(String subject) {
+        try {
+            User user = userRepository.findByIdForUpdate(Long.valueOf(subject))
+                    .orElseThrow(AuthUserNotFoundException::new);
+            if (user.isDeleted()) {
+                throw new AccountDeletedException();
+            }
+            return user;
         } catch (NumberFormatException exception) {
             throw new AuthUserNotFoundException();
         }

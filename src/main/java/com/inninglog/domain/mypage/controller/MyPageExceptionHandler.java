@@ -1,6 +1,7 @@
 package com.inninglog.domain.mypage.controller;
 
 import com.inninglog.domain.auth.service.AuthUserNotFoundException;
+import com.inninglog.domain.auth.service.AccountDeletedException;
 import com.inninglog.domain.auth.service.DuplicateUsernameException;
 import com.inninglog.domain.team.service.TeamNotFoundException;
 import jakarta.validation.ConstraintViolationException;
@@ -17,6 +18,12 @@ public class MyPageExceptionHandler {
     public ResponseEntity<MyPageErrorResponse> handleUserNotFound(AuthUserNotFoundException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new MyPageErrorResponse("USER_NOT_FOUND", exception.getMessage(), Instant.now()));
+    }
+
+    @ExceptionHandler(AccountDeletedException.class)
+    public ResponseEntity<MyPageErrorResponse> handleAccountDeleted(AccountDeletedException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new MyPageErrorResponse("ACCOUNT_DELETED", exception.getMessage(), Instant.now()));
     }
 
     @ExceptionHandler(DuplicateUsernameException.class)

@@ -1,6 +1,7 @@
 package com.inninglog.domain.mypage.service;
 
 import com.inninglog.domain.auth.service.AuthUserNotFoundException;
+import com.inninglog.domain.auth.service.AccountDeletedException;
 import com.inninglog.domain.auth.service.DuplicateUsernameException;
 import com.inninglog.domain.auth.service.UsernamePolicy;
 import com.inninglog.domain.mypage.dto.MyPageResponse;
@@ -41,7 +42,7 @@ public class MyPageService {
 
     @Transactional
     public MyPageResponse updateProfile(String subject, String username, String nickname) {
-        User user = findUser(subject);
+        User user = lockUser(subject);
         String normalizedUsername = UsernamePolicy.normalize(username);
 
         userRepository.findByUsername(normalizedUsername)
@@ -56,7 +57,7 @@ public class MyPageService {
 
     @Transactional
     public MyPageResponse updateFavoriteTeam(String subject, Long favoriteTeamId) {
-        User user = findUser(subject);
+        User user = lockUser(subject);
         KboTeam favoriteTeam = teamQueryService.getEntityById(favoriteTeamId);
 
         user.updateFavoriteTeam(favoriteTeam);
@@ -65,7 +66,7 @@ public class MyPageService {
 
     @Transactional
     public MyPageResponse updateProfileImage(String subject, String profileImageUrl) {
-        User user = findUser(subject);
+        User user = lockUser(subject);
         String normalizedUrl = profileImageUrl == null || profileImageUrl.isBlank()
                 ? null
                 : profileImageUrl.trim();
@@ -76,8 +77,21 @@ public class MyPageService {
 
     private User findUser(String subject) {
         try {
-            return userRepository.findById(Long.valueOf(subject))
+            return userRepository.findByIdAndDeletedAtIsNull(Long.valueOf(subject))
                     .orElseThrow(AuthUserNotFoundException::new);
+        } catch (NumberFormatException exception) {
+            throw new AuthUserNotFoundException();
+        }
+    }
+
+    private User lockUser(String subject) {
+        try {
+            User user = userRepository.findByIdForUpdate(Long.valueOf(subject))
+                    .orElseThrow(AuthUserNotFoundException::new);
+            if (user.isDeleted()) {
+                throw new AccountDeletedException();
+            }
+            return user;
         } catch (NumberFormatException exception) {
             throw new AuthUserNotFoundException();
         }

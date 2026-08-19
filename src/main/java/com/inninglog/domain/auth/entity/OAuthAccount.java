@@ -79,6 +79,10 @@ public class OAuthAccount {
         this.email = email;
     }
 
+    public void anonymizeEmail(Long userId) {
+        this.email = "deleted-" + userId + "@deleted.invalid";
+    }
+
     public User getUser() {
         return user;
     }

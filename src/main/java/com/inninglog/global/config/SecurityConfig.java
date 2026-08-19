@@ -2,6 +2,7 @@ package com.inninglog.global.config;
 
 import com.inninglog.domain.auth.service.GoogleOAuthProperties;
 import com.inninglog.global.security.JwtProperties;
+import com.inninglog.global.security.SessionJwtValidator;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -20,6 +21,7 @@ import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
@@ -40,6 +42,7 @@ public class SecurityConfig {
                                 "/api/health",
                                 "/api/auth/dev-token",
                                 "/api/auth/google",
+                                "/api/auth/refresh",
                                 "/api/teams",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
@@ -72,10 +75,18 @@ public class SecurityConfig {
     }
 
     @Bean
-    public JwtDecoder jwtDecoder(SecretKey jwtSecretKey) {
-        return NimbusJwtDecoder.withSecretKey(jwtSecretKey)
+    public JwtDecoder jwtDecoder(
+            SecretKey jwtSecretKey,
+            JwtProperties properties,
+            SessionJwtValidator sessionJwtValidator
+    ) {
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey)
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
+        decoder.setJwtValidator(new org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefaultWithIssuer(properties.issuer()),
+                sessionJwtValidator));
+        return decoder;
     }
 
     private JwtAuthenticationConverter jwtAuthenticationConverter() {
