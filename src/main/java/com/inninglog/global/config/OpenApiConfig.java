@@ -23,7 +23,7 @@ public class OpenApiConfig {
         return new OpenAPI()
                 .info(new Info()
                         .title("Inning Log API")
-                        .description("Inning Log backend API documentation")
+                        .description("이닝로그 백엔드 API 명세. 별도 표기가 없으면 Bearer JWT 인증이 필요합니다.")
                         .version("v1"))
                 .components(new Components().addSecuritySchemes(BEARER_AUTH, bearerScheme))
                 .addSecurityItem(new SecurityRequirement().addList(BEARER_AUTH));

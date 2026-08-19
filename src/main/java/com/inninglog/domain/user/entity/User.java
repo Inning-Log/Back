@@ -1,6 +1,8 @@
 package com.inninglog.domain.user.entity;
 
 import com.inninglog.domain.team.entity.KboTeam;
+import com.inninglog.domain.user.exception.FavoriteTeamAlreadySelectedException;
+import com.inninglog.domain.user.exception.ProfileSetupRequiredException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -15,6 +17,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 
 @Entity
@@ -57,6 +60,13 @@ public class User {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    @Column
+    private Instant deletedAt;
+
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     protected User() {
     }
 
@@ -80,6 +90,7 @@ public class User {
     }
 
     public void updateGoogleProfile(String email, String profileImageUrl) {
+        requireActive();
         this.email = email;
         if (this.profileImageUrl == null || this.profileImageUrl.isBlank()) {
             this.profileImageUrl = profileImageUrl;
@@ -87,15 +98,18 @@ public class User {
     }
 
     public void setupProfile(String username, String nickname) {
+        requireActive();
         this.username = username;
         this.nickname = nickname;
     }
 
     public void setupOnboardingUsername(String username) {
+        requireActive();
         this.username = username;
     }
 
     public void setupOnboardingNickname(String nickname) {
+        requireActive();
         if (username == null || username.isBlank()) {
             throw new ProfileSetupRequiredException();
         }
@@ -103,19 +117,23 @@ public class User {
     }
 
     public void updateProfile(String username, String nickname) {
+        requireActive();
         this.username = username;
         this.nickname = nickname;
     }
 
     public void updateFavoriteTeam(KboTeam favoriteTeam) {
+        requireActive();
         this.favoriteTeam = favoriteTeam;
     }
 
     public void updateProfileImage(String profileImageUrl) {
+        requireActive();
         this.profileImageUrl = profileImageUrl;
     }
 
     public void selectInitialFavoriteTeam(KboTeam favoriteTeam) {
+        requireActive();
         if (username == null || username.isBlank() || nickname == null || nickname.isBlank()) {
             throw new ProfileSetupRequiredException();
         }
@@ -124,6 +142,24 @@ public class User {
         }
         this.favoriteTeam = favoriteTeam;
         this.onboardingCompleted = true;
+    }
+
+    public void softDelete(Instant deletedAt) {
+        if (this.deletedAt != null) {
+            return;
+        }
+        this.deletedAt = deletedAt;
+        this.email = "deleted-" + id + "@deleted.invalid";
+        this.nickname = null;
+        this.profileImageUrl = null;
+        this.favoriteTeam = null;
+        this.onboardingCompleted = false;
+    }
+
+    private void requireActive() {
+        if (deletedAt != null) {
+            throw new IllegalStateException("Deleted users cannot be modified.");
+        }
     }
 
     public Long getId() {
@@ -164,5 +200,13 @@ public class User {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public Instant getDeletedAt() {
+        return deletedAt;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
     }
 }

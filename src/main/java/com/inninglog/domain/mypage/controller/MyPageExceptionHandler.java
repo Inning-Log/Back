@@ -1,8 +1,9 @@
 package com.inninglog.domain.mypage.controller;
 
-import com.inninglog.domain.auth.service.AuthUserNotFoundException;
-import com.inninglog.domain.auth.service.DuplicateUsernameException;
-import com.inninglog.domain.team.service.TeamNotFoundException;
+import com.inninglog.domain.team.exception.TeamNotFoundException;
+import com.inninglog.domain.user.exception.AccountDeletedException;
+import com.inninglog.domain.user.exception.DuplicateUsernameException;
+import com.inninglog.domain.user.exception.UserNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
 import org.springframework.http.HttpStatus;
@@ -13,10 +14,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice(assignableTypes = MyPageController.class)
 public class MyPageExceptionHandler {
 
-    @ExceptionHandler(AuthUserNotFoundException.class)
-    public ResponseEntity<MyPageErrorResponse> handleUserNotFound(AuthUserNotFoundException exception) {
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<MyPageErrorResponse> handleUserNotFound(UserNotFoundException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new MyPageErrorResponse("USER_NOT_FOUND", exception.getMessage(), Instant.now()));
+    }
+
+    @ExceptionHandler(AccountDeletedException.class)
+    public ResponseEntity<MyPageErrorResponse> handleAccountDeleted(AccountDeletedException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new MyPageErrorResponse("ACCOUNT_DELETED", exception.getMessage(), Instant.now()));
     }
 
     @ExceptionHandler(DuplicateUsernameException.class)
