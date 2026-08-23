@@ -104,3 +104,26 @@ JWT_SECRET=replace-with-a-strong-secret-at-least-32-bytes
 For Google Cloud Console, use the minimum login scopes: `openid`, `profile`,
 and `email`. Store the Google `sub` value as the provider user identifier.
 
+## Push notifications
+
+FCM delivery is disabled by default, so local development and tests do not need
+Firebase credentials. Enable it with Application Default Credentials:
+
+```env
+FIREBASE_ENABLED=true
+FIREBASE_PROJECT_ID=your-firebase-project-id
+GOOGLE_APPLICATION_CREDENTIALS=/path/outside/the/repository/service-account.json
+```
+
+Authenticated clients register and disable their current installation through:
+
+```http
+PUT /api/notifications/push-token
+DELETE /api/notifications/push-token?deviceId=installation-id
+Authorization: Bearer INNING_LOG_JWT
+```
+
+Backend use cases send a typed notification through
+`NotificationDeliveryService.sendToUser`. Delivery automatically batches up to
+500 targets per Firebase request and disables tokens reported as unregistered.
+
