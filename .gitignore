@@ -35,3 +35,7 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Firebase Admin credentials must stay outside the repository.
+firebase-adminsdk*.json
+firebase-service-account*.json

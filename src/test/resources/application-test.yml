@@ -8,6 +8,8 @@ spring:
       ddl-auto: validate
 
 app:
+  firebase:
+    enabled: false
   auth:
     dev-token-enabled: true
     refresh-token-expiration: 30d

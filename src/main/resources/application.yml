@@ -34,6 +34,9 @@ springdoc:
     tags-sorter: alpha
 
 app:
+  firebase:
+    enabled: ${FIREBASE_ENABLED:false}
+    project-id: ${FIREBASE_PROJECT_ID:}
   auth:
     dev-token-enabled: ${APP_AUTH_DEV_TOKEN_ENABLED:false}
     refresh-token-expiration: ${APP_AUTH_REFRESH_TOKEN_EXPIRATION:30d}
