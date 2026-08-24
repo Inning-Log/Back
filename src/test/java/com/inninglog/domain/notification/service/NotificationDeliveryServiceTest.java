@@ -34,7 +34,8 @@ class NotificationDeliveryServiceTest {
     @Test
     void deliverySplitsTargetsAtFirebaseLimitAndPreservesTargetResults() {
         List<PushTarget> targets = IntStream.range(0, 501)
-                .mapToObj(index -> new PushTarget((long) index, (long) index, "token-" + index))
+                .mapToObj(index -> new PushTarget(
+                        (long) index, (long) index, "fid-" + index, 1L))
                 .toList();
         when(pushGateway.send(anyListNotification(), org.mockito.ArgumentMatchers.argThat(batch -> batch.size() == 500)))
                 .thenReturn(new PushBatchResult(IntStream.range(0, 500)

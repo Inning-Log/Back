@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class NotificationMigrationTest {
 
     @Test
-    void v11KeepsTheLatestRegistrationBeforeAddingTheGlobalFidConstraint() throws Exception {
+    void migrationKeepsTheLatestFidOwnerAndRemovesLegacyTokenStorage() throws Exception {
         String databaseName = "notification_migration_" + UUID.randomUUID().toString().replace("-", "");
         String jdbcUrl = "jdbc:h2:mem:" + databaseName
                 + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
@@ -56,16 +56,20 @@ class NotificationMigrationTest {
 
             try (Statement statement = keepAlive.createStatement();
                  ResultSet result = statement.executeQuery("""
-                         select id, user_id, push_token, enabled
-                           from user_push_tokens
-                          where device_id = 'duplicate-fid'
+                         select id, user_id, enabled
+                           from user_push_registrations
+                          where installation_id = 'duplicate-fid'
                          """)) {
                 assertThat(result.next()).isTrue();
                 assertThat(result.getLong("id")).isEqualTo(2002L);
                 assertThat(result.getLong("user_id")).isEqualTo(1002L);
-                assertThat(result.getString("push_token")).isEqualTo("new-token");
                 assertThat(result.getBoolean("enabled")).isFalse();
                 assertThat(result.next()).isFalse();
+            }
+
+            try (ResultSet columns = keepAlive.getMetaData().getColumns(
+                    null, null, "user_push_registrations", "push_token")) {
+                assertThat(columns.next()).isFalse();
             }
         }
     }

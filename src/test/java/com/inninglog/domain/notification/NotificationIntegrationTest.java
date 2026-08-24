@@ -6,8 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.inninglog.domain.notification.entity.UserPushToken;
-import com.inninglog.domain.notification.repository.UserPushTokenRepository;
+import com.inninglog.domain.notification.entity.UserPushRegistration;
+import com.inninglog.domain.notification.repository.UserPushRegistrationRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.repository.UserRepository;
 import com.inninglog.domain.user.service.AccountDeletionService;
@@ -38,7 +38,7 @@ class NotificationIntegrationTest {
     private UserRepository userRepository;
 
     @Autowired
-    private UserPushTokenRepository pushTokenRepository;
+    private UserPushRegistrationRepository registrationRepository;
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
@@ -47,53 +47,36 @@ class NotificationIntegrationTest {
     private AccountDeletionService accountDeletionService;
 
     @BeforeEach
-    void clearPushTokens() {
-        pushTokenRepository.deleteAll();
+    void clearPushRegistrations() {
+        registrationRepository.deleteAll();
     }
 
     @Test
-    void pushTokenCanBeRegisteredRotatedAndDisabled() throws Exception {
+    void fidCanBeRegisteredRefreshedAndDisabled() throws Exception {
         User user = userRepository.save(new User("push-owner@example.com", null));
         String accessToken = accessToken(user);
 
-        register(accessToken, "ANDROID", "device-a", "token-a")
+        register(accessToken, "WEB", "fid-a")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.platform").value("ANDROID"))
-                .andExpect(jsonPath("$.deviceId").value("device-a"))
+                .andExpect(jsonPath("$.platform").value("WEB"))
+                .andExpect(jsonPath("$.installationId").value("fid-a"))
                 .andExpect(jsonPath("$.enabled").value(true));
 
-        register(accessToken, "ANDROID", "device-a", "token-b")
+        register(accessToken, "WEB", "fid-a")
                 .andExpect(status().isOk());
 
-        assertThat(pushTokenRepository.findByPushToken("token-a")).isEmpty();
-        assertThat(pushTokenRepository.findByPushToken("token-b")).isPresent();
-        assertThat(pushTokenRepository.count()).isEqualTo(1);
+        assertThat(registrationRepository.findByInstallationId("fid-a")).isPresent();
+        assertThat(registrationRepository.count()).isEqualTo(1);
 
-        mockMvc.perform(delete("/api/notifications/push-token")
+        mockMvc.perform(delete("/api/notifications/push-registration")
                         .header("Authorization", "Bearer " + accessToken)
-                        .queryParam("deviceId", "device-a"))
+                        .queryParam("installationId", "fid-a"))
                 .andExpect(status().isNoContent());
 
-        assertThat(pushTokenRepository.findByPushToken("token-b"))
+        assertThat(registrationRepository.findByInstallationId("fid-a"))
                 .get()
-                .extracting(UserPushToken::isEnabled)
+                .extracting(UserPushRegistration::isEnabled)
                 .isEqualTo(false);
-    }
-
-    @Test
-    void samePushTokenMovesToTheMostRecentlyAuthenticatedUser() throws Exception {
-        User firstUser = userRepository.save(new User("push-first@example.com", null));
-        User secondUser = userRepository.save(new User("push-second@example.com", null));
-
-        register(accessToken(firstUser), "IOS", "first-device", "shared-token")
-                .andExpect(status().isOk());
-        register(accessToken(secondUser), "IOS", "second-device", "shared-token")
-                .andExpect(status().isOk());
-
-        UserPushToken registration = pushTokenRepository.findByPushToken("shared-token").orElseThrow();
-        assertThat(registration.getUserId()).isEqualTo(secondUser.getId());
-        assertThat(registration.getDeviceId()).isEqualTo("second-device");
-        assertThat(pushTokenRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -101,21 +84,22 @@ class NotificationIntegrationTest {
         User firstUser = userRepository.save(new User("installation-first@example.com", null));
         User secondUser = userRepository.save(new User("installation-second@example.com", null));
 
-        register(accessToken(firstUser), "ANDROID", "shared-installation", "first-token")
+        register(accessToken(firstUser), "WEB", "shared-installation")
                 .andExpect(status().isOk());
-        register(accessToken(secondUser), "ANDROID", "shared-installation", "second-token")
+        register(accessToken(secondUser), "WEB", "shared-installation")
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/notifications/push-token")
+        mockMvc.perform(delete("/api/notifications/push-registration")
                         .header("Authorization", "Bearer " + accessToken(firstUser))
-                        .queryParam("deviceId", "shared-installation"))
+                        .queryParam("installationId", "shared-installation"))
                 .andExpect(status().isNoContent());
 
-        UserPushToken registration = pushTokenRepository.findByDeviceId("shared-installation").orElseThrow();
+        UserPushRegistration registration = registrationRepository
+                .findByInstallationId("shared-installation")
+                .orElseThrow();
         assertThat(registration.getUserId()).isEqualTo(secondUser.getId());
-        assertThat(registration.getPushToken()).isEqualTo("second-token");
         assertThat(registration.isEnabled()).isTrue();
-        assertThat(pushTokenRepository.count()).isEqualTo(1);
+        assertThat(registrationRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -129,9 +113,9 @@ class NotificationIntegrationTest {
 
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
             Future<Integer> first = executor.submit(() -> concurrentRegister(
-                    ready, start, firstAccessToken, "shared-concurrent-installation", "concurrent-token-a"));
+                    ready, start, firstAccessToken, "shared-concurrent-installation"));
             Future<Integer> second = executor.submit(() -> concurrentRegister(
-                    ready, start, secondAccessToken, "shared-concurrent-installation", "concurrent-token-b"));
+                    ready, start, secondAccessToken, "shared-concurrent-installation"));
 
             ready.await();
             start.countDown();
@@ -140,70 +124,75 @@ class NotificationIntegrationTest {
             assertThat(second.get()).isEqualTo(200);
         }
 
-        assertThat(pushTokenRepository.findByDeviceId("shared-concurrent-installation")).isPresent();
-        assertThat(pushTokenRepository.count()).isEqualTo(1);
+        assertThat(registrationRepository.findByInstallationId("shared-concurrent-installation")).isPresent();
+        assertThat(registrationRepository.count()).isEqualTo(1);
     }
 
     @Test
-    void pushTokenEndpointsRequireAuthenticationAndValidateInput() throws Exception {
-        mockMvc.perform(put("/api/notifications/push-token")
+    void pushRegistrationEndpointsRequireAuthenticationAndValidateInput() throws Exception {
+        mockMvc.perform(put("/api/notifications/push-registration")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "platform": "ANDROID",
-                                  "deviceId": "device-a",
-                                  "pushToken": "token-a"
+                                  "platform": "WEB",
+                                  "installationId": "fid-a"
                                 }
                                 """))
                 .andExpect(status().isUnauthorized());
 
         User user = userRepository.save(new User("push-validation@example.com", null));
-        register(accessToken(user), "ANDROID", "", "")
+        register(accessToken(user), "WEB", "")
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void nativeAndroidPlatformRemainsSupported() throws Exception {
+        User user = userRepository.save(new User("android-push@example.com", null));
+
+        register(accessToken(user), "ANDROID", "android-fid")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.platform").value("ANDROID"));
     }
 
     @Test
     void accountDeletionDisablesAllPushRegistrations() throws Exception {
         User user = userRepository.save(new User("push-deleted-user@example.com", null));
-        register(accessToken(user), "ANDROID", "deleted-device", "deleted-token")
+        register(accessToken(user), "WEB", "deleted-installation")
                 .andExpect(status().isOk());
 
         accountDeletionService.deleteCurrentUser(user.getId().toString());
 
-        assertThat(pushTokenRepository.findByDeviceId("deleted-device"))
+        assertThat(registrationRepository.findByInstallationId("deleted-installation"))
                 .get()
-                .extracting(UserPushToken::isEnabled)
+                .extracting(UserPushRegistration::isEnabled)
                 .isEqualTo(false);
     }
 
     private org.springframework.test.web.servlet.ResultActions register(
             String accessToken,
             String platform,
-            String deviceId,
-            String pushToken
+            String installationId
     ) throws Exception {
-        return mockMvc.perform(put("/api/notifications/push-token")
+        return mockMvc.perform(put("/api/notifications/push-registration")
                 .header("Authorization", "Bearer " + accessToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
                           "platform": "%s",
-                          "deviceId": "%s",
-                          "pushToken": "%s"
+                          "installationId": "%s"
                         }
-                        """.formatted(platform, deviceId, pushToken)));
+                        """.formatted(platform, installationId)));
     }
 
     private int concurrentRegister(
             CountDownLatch ready,
             CountDownLatch start,
             String accessToken,
-            String deviceId,
-            String pushToken
+            String installationId
     ) throws Exception {
         ready.countDown();
         start.await();
-        return register(accessToken, "ANDROID", deviceId, pushToken)
+        return register(accessToken, "WEB", installationId)
                 .andReturn()
                 .getResponse()
                 .getStatus();

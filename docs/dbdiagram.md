@@ -612,28 +612,28 @@ related_type/related_id 대신 실제 FK 컬럼을 사용한다.
 }
 
 // ======================================================
-// 18. USER PUSH TOKENS
+// 18. USER PUSH REGISTRATIONS
 // ======================================================
 
-Table user_push_tokens {
+Table user_push_registrations {
 id bigint [pk, increment, not null]
 user_id bigint [not null, ref: > app_users.id]
 platform device_platform [not null]
-device_id varchar(255) [not null, unique, note: 'Firebase Installation ID(FID)']
-push_token varchar(500) [not null, unique, note: 'FCM registration token']
+installation_id varchar(255) [not null, unique, note: 'FCM에 등록된 Firebase Installation ID(FID)']
 enabled boolean [not null, default: true]
 last_seen_at timestamptz [note: '만료 토큰 정리 기준']
 created_at timestamptz [not null]
 updated_at timestamptz [not null]
+registration_revision bigint [not null, default: 1, note: '과거 FCM 실패 응답의 최신 등록 비활성화 방지']
 
 indexes {
-device_id [unique, name: 'uk_user_push_tokens_device']
-(user_id, enabled) [name: 'idx_user_push_tokens_user_enabled']
+installation_id [unique, name: 'uk_user_push_registrations_installation']
+(user_id, enabled) [name: 'idx_user_push_registrations_user_enabled']
 }
 
 Note: '''
-동일 FID 또는 push_token이 다른 사용자로 로그인되면 기존 행의 소유자를 갱신한다.
-push_token은 FID와 다른 값이며 서버는 현재 token multicast로 발송한다.
+동일 FID가 다른 사용자로 로그인되면 기존 행의 소유자를 갱신한다.
+웹/PWA와 네이티브 앱 모두 FID를 등록하고 서버는 FID multicast로 발송한다.
 '''
 }
 

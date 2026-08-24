@@ -83,7 +83,7 @@ class FirebasePushGatewayTest {
     }
 
     @Test
-    void onlyUnregisteredIsClassifiedAsAnInvalidRegistration() throws Exception {
+    void unregisteredIsClassifiedAsAnInvalidRegistration() throws Exception {
         when(firebaseMessaging.sendEachForMulticast(any())).thenReturn(batchResponse);
         when(batchResponse.getResponses()).thenReturn(List.of(sendResponse));
         when(sendResponse.getException()).thenReturn(messagingException);
@@ -94,6 +94,20 @@ class FirebasePushGatewayTest {
 
         assertThat(result.outcome()).isEqualTo(PushTargetOutcome.INVALID);
         assertThat(result.errorCode()).isEqualTo("UNREGISTERED");
+    }
+
+    @Test
+    void fidNotFoundIsClassifiedAsAnInvalidRegistration() throws Exception {
+        when(firebaseMessaging.sendEachForMulticast(any())).thenReturn(batchResponse);
+        when(batchResponse.getResponses()).thenReturn(List.of(sendResponse));
+        when(sendResponse.getException()).thenReturn(messagingException);
+        when(messagingException.getMessagingErrorCode()).thenReturn(null);
+        when(messagingException.getErrorCode()).thenReturn(ErrorCode.NOT_FOUND);
+
+        PushTargetResult result = gateway.send(notification(), targets()).targetResults().getFirst();
+
+        assertThat(result.outcome()).isEqualTo(PushTargetOutcome.INVALID);
+        assertThat(result.errorCode()).isEqualTo("NOT_FOUND");
     }
 
     @Test
@@ -128,8 +142,8 @@ class FirebasePushGatewayTest {
         SendResponse invalidResponse = mock(SendResponse.class);
         FirebaseMessagingException invalidException = mock(FirebaseMessagingException.class);
         List<PushTarget> targets = List.of(
-                new PushTarget(11L, 21L, "token-a"),
-                new PushTarget(12L, 22L, "token-b"));
+                new PushTarget(11L, 21L, "fid-a", 1L),
+                new PushTarget(12L, 22L, "fid-b", 1L));
         when(firebaseMessaging.sendEachForMulticast(any())).thenReturn(batchResponse);
         when(batchResponse.getResponses()).thenReturn(List.of(successResponse, invalidResponse));
         when(invalidResponse.getException()).thenReturn(invalidException);
@@ -153,6 +167,6 @@ class FirebasePushGatewayTest {
     }
 
     private List<PushTarget> targets() {
-        return List.of(new PushTarget(1L, 2L, "token"));
+        return List.of(new PushTarget(1L, 2L, "fid", 1L));
     }
 }

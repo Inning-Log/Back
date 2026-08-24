@@ -27,6 +27,11 @@ public class FcmPayloadValidator {
         Map<String, Object> messagePayload = new LinkedHashMap<>();
         messagePayload.put("notification", notificationPayload);
         messagePayload.put("data", notification.data());
+        String link = notification.data().get("link");
+        if (link != null) {
+            messagePayload.put("webpush", Map.of(
+                    "fcm_options", Map.of("link", link)));
+        }
 
         try {
             int payloadBytes = objectMapper.writeValueAsBytes(messagePayload).length;

@@ -6,10 +6,10 @@ import com.inninglog.domain.notification.entity.NotificationOutbox;
 import com.inninglog.domain.notification.entity.NotificationOutboxStatus;
 import com.inninglog.domain.notification.entity.NotificationTargetStatus;
 import com.inninglog.domain.notification.entity.NotificationType;
-import com.inninglog.domain.notification.entity.UserPushToken;
+import com.inninglog.domain.notification.entity.UserPushRegistration;
 import com.inninglog.domain.notification.repository.NotificationDeliveryTargetRepository;
 import com.inninglog.domain.notification.repository.NotificationOutboxRepository;
-import com.inninglog.domain.notification.repository.UserPushTokenRepository;
+import com.inninglog.domain.notification.repository.UserPushRegistrationRepository;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -44,7 +44,7 @@ public class NotificationDispatchService {
 
     private final NotificationOutboxRepository outboxRepository;
     private final NotificationDeliveryTargetRepository targetRepository;
-    private final UserPushTokenRepository pushTokenRepository;
+    private final UserPushRegistrationRepository registrationRepository;
     private final NotificationDeliveryService deliveryService;
     private final NotificationPayloadCodec payloadCodec;
     private final NotificationDispatchProperties properties;
@@ -55,7 +55,7 @@ public class NotificationDispatchService {
     public NotificationDispatchService(
             NotificationOutboxRepository outboxRepository,
             NotificationDeliveryTargetRepository targetRepository,
-            UserPushTokenRepository pushTokenRepository,
+            UserPushRegistrationRepository registrationRepository,
             NotificationDeliveryService deliveryService,
             NotificationPayloadCodec payloadCodec,
             NotificationDispatchProperties properties,
@@ -65,7 +65,7 @@ public class NotificationDispatchService {
     ) {
         this.outboxRepository = outboxRepository;
         this.targetRepository = targetRepository;
-        this.pushTokenRepository = pushTokenRepository;
+        this.registrationRepository = registrationRepository;
         this.deliveryService = deliveryService;
         this.payloadCodec = payloadCodec;
         this.properties = properties;
@@ -151,15 +151,15 @@ public class NotificationDispatchService {
             return ClaimAttempt.workedWithoutClaim();
         }
 
-        Map<Long, UserPushToken> registrationsById = pushTokenRepository.findAllById(batch.stream()
+        Map<Long, UserPushRegistration> registrationsById = registrationRepository.findAllById(batch.stream()
                         .map(NotificationDeliveryTarget::getPushRegistrationId)
                         .toList()).stream()
-                .collect(Collectors.toMap(UserPushToken::getId, Function.identity()));
+                .collect(Collectors.toMap(UserPushRegistration::getId, Function.identity()));
 
         List<NotificationDeliveryTarget> claimableTargets = new ArrayList<>();
         List<PushTarget> pushTargets = new ArrayList<>();
         for (NotificationDeliveryTarget target : batch) {
-            UserPushToken registration = registrationsById.get(target.getPushRegistrationId());
+            UserPushRegistration registration = registrationsById.get(target.getPushRegistrationId());
             if (registration == null
                     || !registration.isEnabled()
                     || !registration.getUserId().equals(outbox.getUserId())) {
@@ -179,7 +179,8 @@ public class NotificationDispatchService {
             pushTargets.add(new PushTarget(
                     target.getId(),
                     registration.getId(),
-                    registration.getPushToken()));
+                    registration.getInstallationId(),
+                    registration.getRegistrationRevision()));
         }
 
         if (pushTargets.isEmpty()) {
@@ -228,7 +229,8 @@ public class NotificationDispatchService {
         }
 
         NotificationOutbox outbox = pending.getFirst();
-        List<UserPushToken> registrations = pushTokenRepository.findEnabledRegistrationsByUserId(outbox.getUserId());
+        List<UserPushRegistration> registrations = registrationRepository
+                .findEnabledRegistrationsByUserId(outbox.getUserId());
         if (registrations.isEmpty()) {
             outbox.markCompleted(false, now);
             log.info("Push outbox completed without targets: outboxId={}, type={}",
@@ -315,9 +317,10 @@ public class NotificationDispatchService {
                 case INVALID -> {
                     target.markInvalid(result.errorCode(), now);
                     PushTarget originalTarget = pushTargetsById.get(target.getId());
-                    pushTokenRepository.disableIfPushTokenMatches(
+                    registrationRepository.disableIfInstallationIdMatches(
                             originalTarget.registrationId(),
-                            originalTarget.pushToken(),
+                            originalTarget.installationId(),
+                            originalTarget.registrationRevision(),
                             now);
                     metrics.recordTargetFailure(
                             claim.notificationType(), PushTargetOutcome.INVALID, result.errorCode());
