@@ -28,15 +28,18 @@ public class NotificationPayloadCodec {
     }
 
     public PushNotification decode(NotificationOutbox outbox) {
+        return new PushNotification(
+                outbox.getNotificationType(),
+                outbox.getTitle(),
+                outbox.getBody(),
+                decodeData(outbox.getDataJson()));
+    }
+
+    public Map<String, String> decodeData(String dataJson) {
         try {
-            Map<String, String> data = objectMapper.readValue(outbox.getDataJson(), STRING_MAP_TYPE);
-            return new PushNotification(
-                    outbox.getNotificationType(),
-                    outbox.getTitle(),
-                    outbox.getBody(),
-                    data);
+            return Map.copyOf(objectMapper.readValue(dataJson, STRING_MAP_TYPE));
         } catch (JacksonException exception) {
-            throw new InvalidPushPayloadException("Queued notification data is invalid.", exception);
+            throw new InvalidPushPayloadException("Stored notification data is invalid.", exception);
         }
     }
 }

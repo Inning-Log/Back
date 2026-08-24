@@ -25,11 +25,16 @@ Figma의 `신청 대기` 탭은 친구 신청 원본 상태를 조회해야 한�
 - 기록 독촉: `RECORD_REMINDER`
 - 댓글 또는 반응: `TIMELINE_REACTION`, 향후 `TIMELINE_COMMENT`
 
-친구 신청/수락과 영상 작업 결과를 항상 발송할지 별도 토글을 둘지는 제품 결정을 받아야 한다. 현재 서버에는 preference 저장 테이블/API가 없다.
+친구 신청/수락과 영상 작업 결과는 현재 필수 알림으로 취급해 항상 푸시한다. 별도 토글을 추가하려면 제품 정책과 API 계약을 함께 변경한다.
 
 ## 2. 현재 작업 브랜치에서 코드·자동 테스트가 완료된 서버 범위
 
 - 인증 사용자별 FCM 앱 설치 등록/비활성화 API
+- 앱 내 알림 inbox 저장, 최신순 cursor pagination, 단건/전체 읽음 처리 API
+- 사용자별 경기 진행·기록 독촉·소셜 반응 푸시 설정 조회/부분 수정 API
+- 동일 도메인 이벤트의 inbox/outbox 원자적 멱등 생성
+- 설정을 꺼도 inbox는 생성하고 선택 푸시 outbox만 생략
+- enqueue 뒤 설정이 바뀐 경우 worker가 FCM 호출 직전에 다시 검사해 미발송 처리
 - `platform + installationId(FID)` 계약과 `addAllFids()` 발송
 - 웹/PWA `WEB`, 향후 네이티브 Android `ANDROID`, iOS `IOS` 플랫폼 확장성 유지
 - 동일 설치에서 새 사용자가 로그인하면 설치 소유권 이전
@@ -51,20 +56,17 @@ Figma의 `신청 대기` 탭은 친구 신청 원본 상태를 조회해야 한�
 
 ## 3. 아직 구현되지 않은 제품 기능
 
-현재 저장소에는 친구, 타임라인, 경기, 기록, 영상 생성 도메인이 없으므로 `NotificationQueueService.enqueueToUser()`를 호출하는 실제 운영 트리거도 아직 없다. **지금 배포하면 토큰 등록과 큐 인프라는 올라가지만 사용자 알림이 자동 생성되지는 않는다.**
+알림 inbox·설정·FCM 큐는 완성됐지만 각 제품 도메인은 상태 변경 트랜잭션에서 `NotificationQueueService.enqueueToUser()`를 호출해야 한다. 호출하지 않은 도메인의 알림은 자동 생성되지 않는다.
 
 완전한 Figma 알림 시스템을 위해 서버에 추가로 필요한 작업:
 
-1. 친구 신청/수락 도메인 이벤트와 알림 enqueue
-2. 타임라인 reaction 이벤트와 알림 enqueue
+1. 친구 기능 브랜치의 신청/수락 이벤트 연결과 `신청 대기` 목록 API
+2. 아직 연결되지 않은 타임라인 reaction 이벤트
 3. 경기 feed 수집 또는 경기 상태 변경 이벤트
 4. 기록 여부를 판단하는 reminder scheduler
-5. 사용자별 알림 preference 테이블과 조회/수정 API
-6. Figma 알림 목록용 inbox/read 상태 테이블과 pagination API
-7. 친구 `신청 대기` 목록 API
-8. 생성 영상 job 완료/실패 이벤트
-9. 경기 알림 만료 시간과 FCM TTL 정책
-10. 완료 outbox/target 보존기간 및 정리 job
+5. 생성 영상 job 완료/실패 이벤트
+6. 경기 알림 만료 시간과 FCM TTL 정책
+7. 완료 outbox/target 보존기간 및 정리 job
 
 사용자별 등록 기기 수 제한과 등록 API rate limit은 요청에 따라 이번 범위에서는 보류한다. 인증 사용자가 많은 임의 FID를 등록할 수 있는 잔여 위험은 운영 전 별도 보안 항목으로 추적한다.
 
@@ -72,7 +74,7 @@ Figma의 `신청 대기` 탭은 친구 신청 원본 상태를 조회해야 한�
 
 ## 4. 비즈니스 코드에서 enqueue하는 방법
 
-알림은 실제 도메인 상태 변경과 같은 트랜잭션 안에서 enqueue한다. `NotificationQueueService`는 `MANDATORY`이므로 트랜잭션 없이 잘못 호출하면 즉시 실패한다.
+알림은 실제 도메인 상태 변경과 같은 트랜잭션 안에서 enqueue한다. `NotificationQueueService`는 `MANDATORY`이므로 트랜잭션 없이 잘못 호출하면 즉시 실패한다. 호출 시 앱 inbox를 먼저 만들고, 해당 타입의 푸시 설정이 켜져 있을 때만 같은 트랜잭션에 outbox를 만든다.
 
 ```java
 @Transactional
@@ -97,12 +99,13 @@ public void acceptFriendRequest(Long requestId, Long acceptingUserId) {
 
 idempotency key는 동일 도메인 이벤트에서 항상 같은 값이 되게 구성한다. 예:
 
-- `friend-request:{requestId}:created`
-- `friend-request:{requestId}:accepted`
+- `friendship:{friendshipId}:requested:{requestRevision}`
+- `friendship:{friendshipId}:accepted:{requestRevision}`
 - `game:{gameId}:inning:{inning}:{half}:started`
 - `video:{videoId}:ready`
 
 멱등 범위는 `(userId, idempotency key)`다. 같은 이벤트를 여러 사용자에게 보낼 때는 사용자별로 한 행씩 생성되고, 같은 사용자에게 동시에 같은 key가 enqueue돼도 PostgreSQL 원자 INSERT와 composite unique constraint로 한 행만 생성한다.
+Friendship은 거절된 행을 재신청에 재사용하므로 `requestRevision`을 key에 반드시 포함해 새 요청 주기의 알림이 이전 주기와 중복 제거되지 않게 한다.
 
 ### 트랜잭션 선택의 의미
 
@@ -115,9 +118,9 @@ idempotency key는 동일 도메인 이벤트에서 항상 같은 값이 되게 
 
 worker는 짧은 트랜잭션에서 대상을 `PROCESSING`으로 claim하고 lease를 저장한 뒤 commit한다. FCM은 트랜잭션 밖에서 호출하고 결과는 새 트랜잭션으로 반영한다.
 
-프로세스가 FCM 성공 후 결과 저장 전에 죽으면 lease 만료 뒤 같은 `notificationId`가 다시 발송될 수 있다. 정확히 한 번 발송은 FCM에서 보장할 수 없으므로 클라이언트가 `notificationId`로 중복 화면 이동과 중복 로컬 처리를 막아야 한다.
+프로세스가 FCM 성공 후 결과 저장 전에 죽으면 lease 만료 뒤 같은 inbox `notificationId`가 다시 발송될 수 있다. 정확히 한 번 발송은 FCM에서 보장할 수 없으므로 클라이언트가 `notificationId`로 중복 화면 이동과 중복 로컬 처리를 막아야 한다.
 
-발송 직전 등록 행이 비활성화됐거나 outbox 사용자와 소유자가 달라지면 `CANCELLED_OWNERSHIP`으로 보내지 않는다. 다만 이미 FCM에 전달 중인 메시지를 서버가 회수할 수는 없으므로 계정 전환과 동시에 진행 중인 극히 짧은 in-flight 구간까지 완전 취소한다고 보장하지 않는다.
+발송 직전 등록 행이 비활성화됐거나 outbox 사용자와 소유자가 달라지면 `CANCELLED_OWNERSHIP`으로 보내지 않는다. 선택 알림 설정이 꺼졌으면 대상 발송도 취소한다. 다만 이미 FCM에 전달 중인 메시지를 서버가 회수할 수는 없으므로 계정 전환이나 설정 변경과 동시에 진행 중인 극히 짧은 in-flight 구간까지 완전 취소한다고 보장하지 않는다.
 
 ## 6. payload 제한
 

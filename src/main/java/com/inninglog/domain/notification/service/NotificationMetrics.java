@@ -89,6 +89,14 @@ public class NotificationMetrics {
         counter("inninglog.push.target.total", type, "cancelled_ownership").increment();
     }
 
+    public void recordCancelledPreference(NotificationType type, int targetCount) {
+        counter("inninglog.push.outbox.total", type, "cancelled_preference").increment();
+        if (targetCount > 0) {
+            counter("inninglog.push.target.total", type, "cancelled_preference")
+                    .increment(targetCount);
+        }
+    }
+
     public void recordDispatchDuration(NotificationType type, Duration duration) {
         Timer.builder("inninglog.push.delivery.duration")
                 .tag("type", type.name())

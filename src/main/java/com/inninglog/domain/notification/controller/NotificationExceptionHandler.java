@@ -1,6 +1,8 @@
 package com.inninglog.domain.notification.controller;
 
 import com.inninglog.domain.user.exception.UserNotFoundException;
+import com.inninglog.domain.notification.exception.InvalidNotificationSettingsException;
+import com.inninglog.domain.notification.exception.NotificationNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
 import org.springframework.http.HttpStatus;
@@ -8,7 +10,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@RestControllerAdvice(assignableTypes = NotificationController.class)
+@RestControllerAdvice(assignableTypes = {
+        NotificationController.class,
+        NotificationSettingsController.class
+})
 public class NotificationExceptionHandler {
 
     @ExceptionHandler(UserNotFoundException.class)
@@ -21,6 +26,24 @@ public class NotificationExceptionHandler {
     public ResponseEntity<NotificationErrorResponse> handleConstraintViolation(ConstraintViolationException exception) {
         return ResponseEntity.badRequest()
                 .body(new NotificationErrorResponse("INVALID_REQUEST", exception.getMessage(), Instant.now()));
+    }
+
+    @ExceptionHandler(NotificationNotFoundException.class)
+    public ResponseEntity<NotificationErrorResponse> handleNotificationNotFound(
+            NotificationNotFoundException exception
+    ) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new NotificationErrorResponse(
+                        "NOTIFICATION_NOT_FOUND", exception.getMessage(), Instant.now()));
+    }
+
+    @ExceptionHandler(InvalidNotificationSettingsException.class)
+    public ResponseEntity<NotificationErrorResponse> handleInvalidSettings(
+            InvalidNotificationSettingsException exception
+    ) {
+        return ResponseEntity.badRequest()
+                .body(new NotificationErrorResponse(
+                        "INVALID_NOTIFICATION_SETTINGS", exception.getMessage(), Instant.now()));
     }
 
     public record NotificationErrorResponse(String code, String message, Instant timestamp) {

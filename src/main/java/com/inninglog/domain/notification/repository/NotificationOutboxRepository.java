@@ -13,6 +13,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface NotificationOutboxRepository extends JpaRepository<NotificationOutbox, Long> {
 
+    Optional<NotificationOutbox> findByNotificationId(Long notificationId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select outbox from NotificationOutbox outbox where outbox.id = :id")
     Optional<NotificationOutbox> findByIdForUpdate(@Param("id") Long id);

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -13,6 +14,66 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 
 class NotificationMigrationTest {
+
+    @Test
+    void existingOutboxRowsReceiveInboxNotificationsDuringUpgrade() throws Exception {
+        String databaseName = "notification_inbox_migration_"
+                + UUID.randomUUID().toString().replace("-", "");
+        String jdbcUrl = "jdbc:h2:mem:" + databaseName
+                + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, "sa", "")
+                .target("13")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, "sa", "");
+             Statement statement = connection.createStatement()) {
+            dropH2CheckConstraints(connection, "notification_outbox");
+            statement.executeUpdate("""
+                    insert into app_users
+                        (id, email, role, onboarding_completed, created_at, updated_at, version)
+                    values
+                        (3001, 'outbox-upgrade@example.com', 'USER', false,
+                         current_timestamp, current_timestamp, 0)
+                    """);
+            statement.executeUpdate("""
+                    insert into notification_outbox
+                        (id, idempotency_key, user_id, notification_type, title, body,
+                         data_json, status, created_at, updated_at, version)
+                    values
+                        (4001, 'upgrade-event', 3001, 'RECORD_REMINDER', '기록 알림',
+                         '기록을 남겨주세요.', '{"type":"RECORD_REMINDER","gameId":"42"}',
+                         'PENDING', current_timestamp, current_timestamp, 0)
+                    """);
+        }
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, "sa", "")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, "sa", "");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     select outbox.notification_id,
+                            notification.event_key,
+                            notification.user_id,
+                            notification.notification_type
+                       from notification_outbox outbox
+                       join notifications notification
+                         on notification.id = outbox.notification_id
+                      where outbox.id = 4001
+                     """)) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getLong("notification_id")).isPositive();
+            assertThat(result.getString("event_key")).isEqualTo("upgrade-event");
+            assertThat(result.getLong("user_id")).isEqualTo(3001L);
+            assertThat(result.getString("notification_type")).isEqualTo("RECORD_REMINDER");
+            assertThat(result.next()).isFalse();
+        }
+    }
 
     @Test
     void migrationKeepsTheLatestFidOwnerAndRemovesLegacyTokenStorage() throws Exception {
@@ -76,15 +137,17 @@ class NotificationMigrationTest {
 
     private static void dropH2CheckConstraints(Connection connection, String tableName) throws Exception {
         List<String> constraintNames = new ArrayList<>();
-        try (Statement statement = connection.createStatement();
-             ResultSet result = statement.executeQuery("""
+        try (PreparedStatement statement = connection.prepareStatement("""
                      select constraint_name
                        from information_schema.table_constraints
-                      where table_name = 'user_push_tokens'
+                      where table_name = ?
                         and constraint_type = 'CHECK'
                      """)) {
-            while (result.next()) {
-                constraintNames.add(result.getString("constraint_name"));
+            statement.setString(1, tableName);
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    constraintNames.add(result.getString("constraint_name"));
+                }
             }
         }
         for (String constraintName : constraintNames) {

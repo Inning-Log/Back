@@ -1,7 +1,9 @@
 package com.inninglog.domain.notification.service;
 
-import com.inninglog.domain.notification.repository.NotificationOutboxWriter;
-import com.inninglog.domain.notification.repository.NotificationOutboxWriter.InsertResult;
+import com.inninglog.domain.notification.repository.NotificationInboxWriter;
+import com.inninglog.domain.notification.repository.NotificationInboxWriter.InsertResult;
+import com.inninglog.domain.user.exception.UserNotFoundException;
+import com.inninglog.domain.user.repository.UserRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
@@ -9,29 +11,33 @@ import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class NotificationQueueService {
 
-    private final NotificationOutboxWriter outboxWriter;
+    private final UserRepository userRepository;
+    private final NotificationInboxWriter inboxWriter;
+    private final NotificationOutboxService outboxService;
+    private final NotificationPreferencePolicy preferencePolicy;
     private final NotificationPayloadCodec payloadCodec;
     private final FcmPayloadValidator payloadValidator;
-    private final NotificationMetrics metrics;
     private final Clock clock;
 
     public NotificationQueueService(
-            NotificationOutboxWriter outboxWriter,
+            UserRepository userRepository,
+            NotificationInboxWriter inboxWriter,
+            NotificationOutboxService outboxService,
+            NotificationPreferencePolicy preferencePolicy,
             NotificationPayloadCodec payloadCodec,
             FcmPayloadValidator payloadValidator,
-            NotificationMetrics metrics,
             Clock clock
     ) {
-        this.outboxWriter = outboxWriter;
+        this.userRepository = userRepository;
+        this.inboxWriter = inboxWriter;
+        this.outboxService = outboxService;
+        this.preferencePolicy = preferencePolicy;
         this.payloadCodec = payloadCodec;
         this.payloadValidator = payloadValidator;
-        this.metrics = metrics;
         this.clock = clock;
     }
 
@@ -40,6 +46,8 @@ public class NotificationQueueService {
         String normalizedKey = requireIdempotencyKey(idempotencyKey);
         Objects.requireNonNull(userId, "userId must not be null");
         Objects.requireNonNull(notification, "notification must not be null");
+        userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(UserNotFoundException::new);
 
         Instant now = clock.instant();
         PushNotification sizedNotification = notification.withSystemData(Map.of(
@@ -49,7 +57,7 @@ public class NotificationQueueService {
                 "audienceUserId", String.valueOf(Long.MAX_VALUE)));
         payloadValidator.validate(sizedNotification);
 
-        InsertResult insertResult = outboxWriter.insertIfAbsent(
+        InsertResult insertResult = inboxWriter.insertIfAbsent(
                 normalizedKey,
                 userId,
                 notification.type(),
@@ -58,15 +66,14 @@ public class NotificationQueueService {
                 payloadCodec.encode(notification.data()),
                 now);
 
-        if (insertResult.inserted()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    metrics.recordEnqueued(notification.type());
-                }
-            });
+        if (insertResult.inserted() && preferencePolicy.isPushEnabled(userId, notification.type())) {
+            outboxService.enqueue(
+                    normalizedKey,
+                    insertResult.notificationId(),
+                    userId,
+                    notification);
         }
-        return insertResult.outboxId();
+        return insertResult.notificationId();
     }
 
     private static String requireIdempotencyKey(String idempotencyKey) {

@@ -8,16 +8,20 @@ import com.inninglog.domain.notification.entity.DevicePlatform;
 import com.inninglog.domain.notification.entity.NotificationDeliveryTarget;
 import com.inninglog.domain.notification.entity.NotificationOutbox;
 import com.inninglog.domain.notification.entity.NotificationOutboxStatus;
+import com.inninglog.domain.notification.entity.NotificationSetting;
 import com.inninglog.domain.notification.entity.NotificationTargetStatus;
 import com.inninglog.domain.notification.entity.NotificationType;
 import com.inninglog.domain.notification.entity.UserPushRegistration;
 import com.inninglog.domain.notification.repository.NotificationDeliveryTargetRepository;
 import com.inninglog.domain.notification.repository.NotificationOutboxRepository;
+import com.inninglog.domain.notification.repository.NotificationSettingRepository;
+import com.inninglog.domain.notification.repository.UserNotificationRepository;
 import com.inninglog.domain.notification.repository.UserPushRegistrationRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.repository.UserRepository;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -50,7 +54,7 @@ import org.springframework.transaction.IllegalTransactionStateException;
 class NotificationQueueDispatchIntegrationTest {
 
     @Autowired
-    private NotificationQueueService queueService;
+    private NotificationQueueService notificationQueueService;
 
     @Autowired
     private NotificationDispatchService dispatchService;
@@ -60,6 +64,12 @@ class NotificationQueueDispatchIntegrationTest {
 
     @Autowired
     private NotificationOutboxRepository outboxRepository;
+
+    @Autowired
+    private UserNotificationRepository notificationRepository;
+
+    @Autowired
+    private NotificationSettingRepository settingRepository;
 
     @Autowired
     private NotificationDeliveryTargetRepository targetRepository;
@@ -83,6 +93,8 @@ class NotificationQueueDispatchIntegrationTest {
     void clearNotificationState() {
         targetRepository.deleteAll();
         outboxRepository.deleteAll();
+        notificationRepository.deleteAll();
+        settingRepository.deleteAll();
         registrationRepository.deleteAll();
         pushGateway.reset();
     }
@@ -93,7 +105,7 @@ class NotificationQueueDispatchIntegrationTest {
         double metricBefore = enqueuedMetric();
 
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(ignored -> {
-            queueService.enqueueToUser("rollback-event", user.getId(), notification());
+            notificationQueueService.enqueueToUser("rollback-event", user.getId(), notification());
             throw new IllegalStateException("business rollback");
         })).isInstanceOf(IllegalStateException.class);
 
@@ -105,7 +117,7 @@ class NotificationQueueDispatchIntegrationTest {
     void enqueueRequiresAnExistingBusinessTransaction() {
         User user = createUser("outbox-no-transaction@example.com");
 
-        assertThatThrownBy(() -> queueService.enqueueToUser(
+        assertThatThrownBy(() -> notificationQueueService.enqueueToUser(
                 "missing-business-transaction", user.getId(), notification()))
                 .isInstanceOf(IllegalTransactionStateException.class);
     }
@@ -165,7 +177,8 @@ class NotificationQueueDispatchIntegrationTest {
 
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
             Future<Long> first = executor.submit(() -> transactionTemplate.execute(ignored -> {
-                Long id = queueService.enqueueToUser("independent-event-a", user.getId(), notification());
+                Long id = notificationQueueService.enqueueToUser(
+                        "independent-event-a", user.getId(), notification());
                 firstInsertCompleted.countDown();
                 await(releaseFirstTransaction);
                 return id;
@@ -173,7 +186,8 @@ class NotificationQueueDispatchIntegrationTest {
 
             assertThat(firstInsertCompleted.await(5, TimeUnit.SECONDS)).isTrue();
             Future<Long> second = executor.submit(() -> transactionTemplate.execute(ignored ->
-                    queueService.enqueueToUser("independent-event-b", user.getId(), notification())));
+                    notificationQueueService.enqueueToUser(
+                            "independent-event-b", user.getId(), notification())));
 
             try {
                 assertThat(second.get(2, TimeUnit.SECONDS)).isNotNull();
@@ -263,6 +277,27 @@ class NotificationQueueDispatchIntegrationTest {
     }
 
     @Test
+    void preferenceDisabledAfterExpansionCancelsTargetsBeforeGatewayCall() throws Exception {
+        User user = createUserWithRegistration(
+                "dispatch-preference@example.com", "preference-fid");
+        Long outboxId = enqueue("preference-event", user.getId());
+
+        assertThat(dispatchService.dispatchNext()).isTrue();
+        assertThat(targetRepository.count()).isEqualTo(1);
+
+        NotificationSetting setting = new NotificationSetting(user.getId(), Instant.now());
+        setting.update(false, null, null, Instant.now());
+        settingRepository.saveAndFlush(setting);
+
+        assertThat(dispatchWithinOneSecond()).isTrue();
+
+        assertThat(pushGateway.calls.get()).isZero();
+        assertThat(targetRepository.count()).isZero();
+        assertThat(outboxRepository.findById(outboxId).orElseThrow().getStatus())
+                .isEqualTo(NotificationOutboxStatus.COMPLETED);
+    }
+
+    @Test
     void staleInvalidResponseDoesNotDisableARefreshedFidRegistration() throws Exception {
         User user = createUserWithRegistration("dispatch-refresh@example.com", "refresh-fid");
         enqueue("rotation-event", user.getId());
@@ -318,7 +353,7 @@ class NotificationQueueDispatchIntegrationTest {
         ready.countDown();
         start.await();
         return transactionTemplate.execute(ignored ->
-                queueService.enqueueToUser("same-domain-event", userId, notification()));
+                notificationQueueService.enqueueToUser("same-domain-event", userId, notification()));
     }
 
     private static void await(CountDownLatch latch) {
@@ -333,7 +368,9 @@ class NotificationQueueDispatchIntegrationTest {
     }
 
     private Long enqueue(String key, Long userId) {
-        return transactionTemplate.execute(ignored -> queueService.enqueueToUser(key, userId, notification()));
+        Long notificationId = transactionTemplate.execute(ignored ->
+                notificationQueueService.enqueueToUser(key, userId, notification()));
+        return outboxRepository.findByNotificationId(notificationId).orElseThrow().getId();
     }
 
     private boolean dispatchWithinOneSecond() throws InterruptedException {

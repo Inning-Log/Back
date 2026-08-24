@@ -543,24 +543,30 @@ Table friendships {
 id bigint [pk, increment, not null]
 requester_id bigint [not null, ref: > app_users.id]
 receiver_id bigint [not null, ref: > app_users.id]
-pair_key varchar(100) [not null, unique, note: 'DB generated: minUserId:maxUserId']
+pair_key varchar(100) [not null, unique, note: '애플리케이션 canonical key: minUserId:maxUserId, DB CHECK로 검증']
 status friendship_status [not null, default: 'PENDING']
+request_revision int [not null, default: 1, note: '거절 후 재신청할 때마다 1 증가']
 requested_at timestamptz [not null]
 responded_at timestamptz
 created_at timestamptz [not null]
 updated_at timestamptz [not null]
+version bigint [not null, default: 0]
 
 indexes {
-(receiver_id, status) [name: 'idx_friendships_receiver_status']
-(requester_id, status) [name: 'idx_friendships_requester_status']
+(receiver_id, status, requested_at) [name: 'idx_friendships_receiver_status_requested']
+(requester_id, status, requested_at) [name: 'idx_friendships_requester_status_requested']
 }
 
 checks {
 `requester_id <> receiver_id` [name: 'chk_friendships_not_self']
+`request_revision >= 1` [name: 'chk_friendships_request_revision']
+`pair_key = min(requester_id, receiver_id) || ':' || max(requester_id, receiver_id)` [name: 'chk_friendships_pair_key']
+`(status = 'PENDING' AND responded_at IS NULL) OR (status IN ('ACCEPTED', 'REJECTED') AND responded_at IS NOT NULL)` [name: 'chk_friendships_response_state']
 }
 
 Note: '''
-pair_key는 애플리케이션 문자열 조합이 아니라 PostgreSQL generated column으로 생성한다.
+pair_key는 애플리케이션이 ID 오름차순으로 생성하고 DB CHECK가 정확성을 강제한다.
+요청 생성 시 두 사용자 행을 ID 오름차순으로 잠근 뒤 pair를 조회해 역방향 동시 신청도 한 행만 유지한다.
 BLOCKED는 MVP에서 제거한다. 차단 기능이 추가되면 단방향 user_blocks 테이블로 분리한다.
 REJECTED 후 재신청은 기존 행을 PENDING으로 갱신한다.
 '''
@@ -589,25 +595,25 @@ Note: '''
 
 Table notifications {
 id bigint [pk, increment, not null]
+event_key varchar(200) [not null]
 user_id bigint [not null, ref: > app_users.id]
-type notification_type [not null]
-actor_user_id bigint [ref: > app_users.id]
-game_id bigint [ref: > games.id]
-video_project_id bigint [ref: > video_projects.id]
+notification_type notification_type [not null]
 title varchar(100) [not null]
 body varchar(500)
+data_json text [not null]
 read_at timestamptz [note: 'NULL이면 읽지 않음']
 created_at timestamptz [not null]
 
 indexes {
-(user_id, created_at) [name: 'idx_notifications_user_created']
-(user_id, read_at, created_at) [name: 'idx_notifications_user_read_created']
+(user_id, event_key) [unique, name: 'uk_notifications_user_event']
+(user_id, id) [name: 'idx_notifications_user_id_desc']
+(user_id, read_at, id) [name: 'idx_notifications_user_unread']
 }
 
 Note: '''
 is_read는 read_at과 중복되므로 제거한다.
-related_type/related_id 대신 실제 FK 컬럼을 사용한다.
-마이그레이션에서는 read_at IS NULL인 사용자별 부분 인덱스를 추가한다.
+아직 존재하지 않는 제품 도메인의 FK를 미리 만들지 않고 data_json에 화면 이동 식별자를 저장한다.
+event_key는 같은 사용자에게 동일 도메인 이벤트의 inbox 중복 생성을 막는다.
 '''
 }
 
@@ -644,6 +650,7 @@ Note: '''
 Table notification_outbox {
 id bigint [pk, increment, not null]
 idempotency_key varchar(200) [not null]
+notification_id bigint [not null, unique, ref: > notifications.id]
 user_id bigint [not null, ref: > app_users.id]
 notification_type notification_type [not null]
 title varchar(100) [not null]
