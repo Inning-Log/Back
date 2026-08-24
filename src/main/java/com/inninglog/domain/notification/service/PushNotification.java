@@ -26,9 +26,33 @@ public record PushNotification(
 
         Map<String, String> normalizedData = new LinkedHashMap<>();
         if (data != null) {
+            data.forEach(PushNotification::validateDataEntry);
             normalizedData.putAll(data);
         }
         normalizedData.put("type", type.name());
         data = Map.copyOf(normalizedData);
+    }
+
+    public PushNotification withSystemData(Map<String, String> systemData) {
+        Map<String, String> mergedData = new LinkedHashMap<>(data);
+        mergedData.putAll(systemData);
+        return new PushNotification(type, title, body, mergedData);
+    }
+
+    private static void validateDataEntry(String key, String value) {
+        if (key == null || key.isBlank()) {
+            throw new InvalidPushPayloadException("FCM data keys must not be blank.");
+        }
+        if (value == null) {
+            throw new InvalidPushPayloadException("FCM data values must not be null.");
+        }
+
+        String normalizedKey = key.toLowerCase(java.util.Locale.ROOT);
+        if (normalizedKey.equals("from")
+                || normalizedKey.equals("message_type")
+                || normalizedKey.startsWith("google.")
+                || normalizedKey.startsWith("gcm.")) {
+            throw new InvalidPushPayloadException("FCM data key is reserved: " + key);
+        }
     }
 }

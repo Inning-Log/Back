@@ -1,6 +1,5 @@
 package com.inninglog.domain.notification.service;
 
-import com.inninglog.domain.notification.repository.UserPushTokenRepository;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -10,41 +9,27 @@ public class NotificationDeliveryService {
 
     static final int FCM_MULTICAST_LIMIT = 500;
 
-    private final UserPushTokenRepository pushTokenRepository;
     private final PushGateway pushGateway;
-    private final PushTokenCleanupService pushTokenCleanupService;
 
-    public NotificationDeliveryService(
-            UserPushTokenRepository pushTokenRepository,
-            PushGateway pushGateway,
-            PushTokenCleanupService pushTokenCleanupService
-    ) {
-        this.pushTokenRepository = pushTokenRepository;
+    public NotificationDeliveryService(PushGateway pushGateway) {
         this.pushGateway = pushGateway;
-        this.pushTokenCleanupService = pushTokenCleanupService;
     }
 
-    public NotificationDeliveryResult sendToUser(Long userId, PushNotification notification) {
-        List<String> pushTokens = pushTokenRepository.findEnabledPushTokensByUserId(userId);
-        if (pushTokens.isEmpty()) {
-            return NotificationDeliveryResult.noTargets();
+    PushBatchResult deliver(PushNotification notification, List<PushTarget> targets) {
+        if (targets.isEmpty()) {
+            return new PushBatchResult(List.of());
         }
 
-        int successes = 0;
-        int failures = 0;
-        List<String> invalidTokens = new ArrayList<>();
+        List<PushTargetResult> targetResults = new ArrayList<>();
 
-        for (int offset = 0; offset < pushTokens.size(); offset += FCM_MULTICAST_LIMIT) {
-            List<String> batch = pushTokens.subList(
+        for (int offset = 0; offset < targets.size(); offset += FCM_MULTICAST_LIMIT) {
+            List<PushTarget> batch = targets.subList(
                     offset,
-                    Math.min(offset + FCM_MULTICAST_LIMIT, pushTokens.size()));
+                    Math.min(offset + FCM_MULTICAST_LIMIT, targets.size()));
             PushBatchResult result = pushGateway.send(notification, batch);
-            successes += result.successCount();
-            failures += result.failureCount();
-            invalidTokens.addAll(result.invalidPushTokens());
+            targetResults.addAll(result.targetResults());
         }
 
-        pushTokenCleanupService.disableInvalidTokens(invalidTokens);
-        return new NotificationDeliveryResult(pushTokens.size(), successes, failures);
+        return new PushBatchResult(targetResults);
     }
 }

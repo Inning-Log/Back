@@ -11,11 +11,11 @@ public record PushTokenRegistrationRequest(
         @Schema(description = "기기 플랫폼", example = "ANDROID", requiredMode = Schema.RequiredMode.REQUIRED)
         @NotNull DevicePlatform platform,
 
-        @Schema(description = "앱 설치 단위의 안정적인 기기 식별자", example = "installation-9f2a",
+        @Schema(description = "Firebase Installations getId()로 얻은 앱 설치 단위 FID", example = "cVh7...installation-fid",
                 requiredMode = Schema.RequiredMode.REQUIRED)
         @NotBlank @Size(max = 255) String deviceId,
 
-        @Schema(description = "클라이언트 FCM SDK에서 발급받은 등록 토큰", example = "fcm-registration-token",
+        @Schema(description = "FirebaseMessaging getToken()으로 얻은 FCM registration token", example = "fcm-registration-token",
                 requiredMode = Schema.RequiredMode.REQUIRED)
         @NotBlank @Size(max = 500) String pushToken
 ) {

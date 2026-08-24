@@ -9,7 +9,12 @@ import org.springframework.stereotype.Component;
 public class DisabledPushGateway implements PushGateway {
 
     @Override
-    public PushBatchResult send(PushNotification notification, List<String> pushTokens) {
-        throw new PushDeliveryException("Firebase push delivery is disabled.");
+    public PushBatchResult send(PushNotification notification, List<PushTarget> targets) {
+        return new PushBatchResult(targets.stream()
+                .map(target -> PushTargetResult.failure(
+                        target,
+                        PushTargetOutcome.TERMINAL_FAILURE,
+                        "FIREBASE_DISABLED"))
+                .toList());
     }
 }

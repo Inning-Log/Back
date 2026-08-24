@@ -2,9 +2,23 @@ package com.inninglog.domain.notification.service;
 
 import java.util.List;
 
-public record PushBatchResult(int successCount, int failureCount, List<String> invalidPushTokens) {
+public record PushBatchResult(List<PushTargetResult> targetResults) {
 
     public PushBatchResult {
-        invalidPushTokens = List.copyOf(invalidPushTokens);
+        targetResults = List.copyOf(targetResults);
+    }
+
+    public int successCount() {
+        return count(PushTargetOutcome.SUCCESS);
+    }
+
+    public int failureCount() {
+        return targetResults.size() - successCount();
+    }
+
+    public int count(PushTargetOutcome outcome) {
+        return (int) targetResults.stream()
+                .filter(result -> result.outcome() == outcome)
+                .count();
     }
 }

@@ -82,8 +82,11 @@ jobs:
 
       APP_BIND_ADDRESS: ${{ secrets.APP_BIND_ADDRESS || '127.0.0.1' }}
       APP_HOST_PORT: ${{ secrets.APP_HOST_PORT || '8080' }}
+      MANAGEMENT_HOST_PORT: ${{ secrets.MANAGEMENT_HOST_PORT || '9090' }}
+      MANAGEMENT_PORT: ${{ secrets.MANAGEMENT_PORT || '9090' }}
 
       EC2_ENV_FILE: ${{ secrets.EC2_ENV_FILE || '/etc/inninglog/inninglog.env' }}
+      EC2_FIREBASE_CREDENTIALS_FILE: ${{ secrets.EC2_FIREBASE_CREDENTIALS_FILE || '/etc/inninglog/firebase-admin.json' }}
       REMOTE_DEPLOY_DIR: ${{ secrets.REMOTE_DEPLOY_DIR || '/home/ubuntu/deploy' }}
 
       AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
@@ -169,7 +172,10 @@ jobs:
             -i ~/.ssh/ec2_key \
             -p "$EC2_PORT" \
             "$EC2_USER@$EC2_HOST" \
-            "test -f '$EC2_ENV_FILE'"
+            "test -f '$EC2_ENV_FILE' \
+            && if grep -Eiq '^[[:space:]]*FIREBASE_ENABLED[[:space:]]*=[[:space:]]*\"?true\"?[[:space:]]*$' '$EC2_ENV_FILE'; then \
+                 test -f '$EC2_FIREBASE_CREDENTIALS_FILE'; \
+               fi"
 
 
       # 배포 전에 과거 tar / 사용하지 않는 Docker 이미지 정리
@@ -226,12 +232,28 @@ jobs:
             -i ~/.ssh/ec2_key \
             -p "$EC2_PORT" \
             "$EC2_USER@$EC2_HOST" \
-            "docker run -d \
-              --name '$CONTAINER_NAME' \
-              --restart unless-stopped \
-              --env-file '$EC2_ENV_FILE' \
-              -p '$APP_BIND_ADDRESS:$APP_HOST_PORT:$APP_PORT' \
-              '$IMAGE_NAME:${{ github.sha }}'"
+            "if grep -Eiq '^[[:space:]]*FIREBASE_ENABLED[[:space:]]*=[[:space:]]*\"?true\"?[[:space:]]*$' '$EC2_ENV_FILE'; then \
+               docker run -d \
+                 --name '$CONTAINER_NAME' \
+                 --restart unless-stopped \
+                 --env-file '$EC2_ENV_FILE' \
+                 --env 'MANAGEMENT_SERVER_ADDRESS=0.0.0.0' \
+                 --env 'MANAGEMENT_SERVER_PORT=$MANAGEMENT_PORT' \
+                 --mount 'type=bind,src=$EC2_FIREBASE_CREDENTIALS_FILE,dst=/run/secrets/firebase-admin.json,readonly' \
+                 -p '$APP_BIND_ADDRESS:$APP_HOST_PORT:$APP_PORT' \
+                 -p '127.0.0.1:$MANAGEMENT_HOST_PORT:$MANAGEMENT_PORT' \
+                 '$IMAGE_NAME:${{ github.sha }}'; \
+             else \
+               docker run -d \
+                 --name '$CONTAINER_NAME' \
+                 --restart unless-stopped \
+                 --env-file '$EC2_ENV_FILE' \
+                 --env 'MANAGEMENT_SERVER_ADDRESS=0.0.0.0' \
+                 --env 'MANAGEMENT_SERVER_PORT=$MANAGEMENT_PORT' \
+                 -p '$APP_BIND_ADDRESS:$APP_HOST_PORT:$APP_PORT' \
+                 -p '127.0.0.1:$MANAGEMENT_HOST_PORT:$MANAGEMENT_PORT' \
+                 '$IMAGE_NAME:${{ github.sha }}'; \
+             fi"
 
 
       - name: Health check
@@ -242,9 +264,11 @@ jobs:
             "$EC2_USER@$EC2_HOST" \
             "for i in \$(seq 1 20); do \
               if curl -fsS \
-                http://127.0.0.1:$APP_HOST_PORT/api/health; then \
+                http://127.0.0.1:$APP_HOST_PORT/api/health \
+                && curl -fsS \
+                http://127.0.0.1:$MANAGEMENT_HOST_PORT/actuator/health; then \
                 echo; \
-                echo 'Health check passed'; \
+                echo 'Application and management health checks passed'; \
                 exit 0; \
               fi; \
               echo \"Health check attempt \$i failed\"; \

@@ -2,7 +2,9 @@ package com.inninglog.domain.notification.service;
 
 import com.inninglog.domain.notification.dto.PushTokenRegistrationRequest;
 import com.inninglog.domain.notification.dto.PushTokenResponse;
+import com.inninglog.domain.notification.entity.PushRegistrationLock;
 import com.inninglog.domain.notification.entity.UserPushToken;
+import com.inninglog.domain.notification.repository.PushRegistrationLockRepository;
 import com.inninglog.domain.notification.repository.UserPushTokenRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.exception.UserNotFoundException;
@@ -18,28 +20,32 @@ public class PushTokenRegistrationService {
 
     private final UserRepository userRepository;
     private final UserPushTokenRepository pushTokenRepository;
+    private final PushRegistrationLockRepository registrationLockRepository;
     private final Clock clock;
 
     public PushTokenRegistrationService(
             UserRepository userRepository,
             UserPushTokenRepository pushTokenRepository,
+            PushRegistrationLockRepository registrationLockRepository,
             Clock clock
     ) {
         this.userRepository = userRepository;
         this.pushTokenRepository = pushTokenRepository;
+        this.registrationLockRepository = registrationLockRepository;
         this.clock = clock;
     }
 
     @Transactional
     public PushTokenResponse register(String subject, PushTokenRegistrationRequest request) {
-        User user = findActiveUser(subject);
         String deviceId = request.deviceId().trim();
         String pushToken = request.pushToken().trim();
         Instant now = clock.instant();
 
+        lockRegistrations();
+        User user = findActiveUserForUpdate(subject);
+
         Optional<UserPushToken> tokenRegistration = pushTokenRepository.findByPushToken(pushToken);
-        Optional<UserPushToken> deviceRegistration = pushTokenRepository
-                .findByUser_IdAndDeviceId(user.getId(), deviceId);
+        Optional<UserPushToken> deviceRegistration = pushTokenRepository.findByDeviceId(deviceId);
 
         UserPushToken registration;
         if (tokenRegistration.isPresent()) {
@@ -62,15 +68,26 @@ public class PushTokenRegistrationService {
 
     @Transactional
     public void disable(String subject, String deviceId) {
-        User user = findActiveUser(subject);
-        pushTokenRepository.findByUser_IdAndDeviceId(user.getId(), deviceId.trim())
+        lockRegistrations();
+        User user = findActiveUserForUpdate(subject);
+        pushTokenRepository.findByDeviceId(deviceId.trim())
+                .filter(token -> token.getUserId().equals(user.getId()))
                 .ifPresent(token -> token.disable(clock.instant()));
     }
 
-    private User findActiveUser(String subject) {
+    private void lockRegistrations() {
+        registrationLockRepository.findByIdForUpdate(PushRegistrationLock.GLOBAL_LOCK_ID)
+                .orElseThrow(() -> new IllegalStateException("Push registration lock row is missing."));
+    }
+
+    private User findActiveUserForUpdate(String subject) {
         try {
-            return userRepository.findByIdAndDeletedAtIsNull(Long.valueOf(subject))
+            User user = userRepository.findByIdForUpdate(Long.valueOf(subject))
                     .orElseThrow(UserNotFoundException::new);
+            if (user.isDeleted()) {
+                throw new UserNotFoundException();
+            }
+            return user;
         } catch (NumberFormatException exception) {
             throw new UserNotFoundException();
         }

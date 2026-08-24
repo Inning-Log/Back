@@ -16,12 +16,13 @@ FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
-RUN useradd --system --create-home --shell /usr/sbin/nologin appuser
+RUN groupadd --system --gid 10001 appuser \
+    && useradd --system --uid 10001 --gid appuser --create-home --shell /usr/sbin/nologin appuser
 
 COPY --from=builder /workspace/app.jar /app/app.jar
 
 USER appuser
 
-EXPOSE 8080
+EXPOSE 8080 9090
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
