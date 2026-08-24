@@ -25,7 +25,7 @@ class NotificationQueueServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final NotificationOutboxWriter outboxWriter = mock(NotificationOutboxWriter.class);
     private final NotificationMetrics metrics = mock(NotificationMetrics.class);
-    private final NotificationQueueService queueService = new NotificationQueueService(
+    private final NotificationOutboxService outboxService = new NotificationOutboxService(
             outboxWriter,
             new NotificationPayloadCodec(objectMapper),
             new FcmPayloadValidator(objectMapper),
@@ -35,7 +35,7 @@ class NotificationQueueServiceTest {
     @Test
     void queueLimitIncludesAllServerAddedFieldsAtThe4096ByteBoundary() throws Exception {
         when(outboxWriter.insertIfAbsent(
-                any(), any(), any(), any(), any(), any(), any()))
+                any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new InsertResult(1L, false));
 
         PushNotification empty = notification("");
@@ -43,15 +43,15 @@ class NotificationQueueServiceTest {
                 - serializedBytes(withLargestSystemFields(empty));
         PushNotification exact = notification("a".repeat(availableBytes));
 
-        assertThatCode(() -> queueService.enqueueToUser("payload-exact", 1L, exact))
+        assertThatCode(() -> outboxService.enqueue("payload-exact", 1L, 1L, exact))
                 .doesNotThrowAnyException();
-        assertThatThrownBy(() -> queueService.enqueueToUser(
-                "payload-too-large", 1L, notification("a".repeat(availableBytes) + "⚾")))
+        assertThatThrownBy(() -> outboxService.enqueue(
+                "payload-too-large", 1L, 1L, notification("a".repeat(availableBytes) + "⚾")))
                 .isInstanceOf(InvalidPushPayloadException.class)
                 .hasMessageContaining("4096");
 
         verify(outboxWriter).insertIfAbsent(
-                any(), any(), any(), any(), any(), any(), any());
+                any(), any(), any(), any(), any(), any(), any(), any());
         verifyNoMoreInteractions(outboxWriter, metrics);
     }
 

@@ -21,6 +21,7 @@ public class NotificationOutboxWriter {
 
     public InsertResult insertIfAbsent(
             String idempotencyKey,
+            Long notificationId,
             Long userId,
             NotificationType notificationType,
             String title,
@@ -32,6 +33,7 @@ public class NotificationOutboxWriter {
         int insertedRows = switch (databaseDialect()) {
             case POSTGRESQL -> insertPostgresql(
                     idempotencyKey,
+                    notificationId,
                     userId,
                     notificationType,
                     title,
@@ -40,6 +42,7 @@ public class NotificationOutboxWriter {
                     timestamp);
             case H2 -> insertH2(
                     idempotencyKey,
+                    notificationId,
                     userId,
                     notificationType,
                     title,
@@ -58,6 +61,7 @@ public class NotificationOutboxWriter {
 
     private int insertPostgresql(
             String idempotencyKey,
+            Long notificationId,
             Long userId,
             NotificationType notificationType,
             String title,
@@ -68,6 +72,7 @@ public class NotificationOutboxWriter {
         return jdbcTemplate.update("""
                 insert into notification_outbox (
                     idempotency_key,
+                    notification_id,
                     user_id,
                     notification_type,
                     title,
@@ -77,10 +82,11 @@ public class NotificationOutboxWriter {
                     created_at,
                     updated_at,
                     version
-                ) values (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, 0)
+                ) values (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, 0)
                 on conflict (user_id, idempotency_key) do nothing
                 """,
                 idempotencyKey,
+                notificationId,
                 userId,
                 notificationType.name(),
                 title,
@@ -92,6 +98,7 @@ public class NotificationOutboxWriter {
 
     private int insertH2(
             String idempotencyKey,
+            Long notificationId,
             Long userId,
             NotificationType notificationType,
             String title,
@@ -102,8 +109,9 @@ public class NotificationOutboxWriter {
         try {
             return jdbcTemplate.update("""
                     merge into notification_outbox as target
-                    using (values (?, ?, ?, ?, ?, ?, ?, ?)) as source(
+                    using (values (?, ?, ?, ?, ?, ?, ?, ?, ?)) as source(
                         idempotency_key,
+                        notification_id,
                         user_id,
                         notification_type,
                         title,
@@ -116,6 +124,7 @@ public class NotificationOutboxWriter {
                        and target.idempotency_key = source.idempotency_key
                     when not matched then insert (
                         idempotency_key,
+                        notification_id,
                         user_id,
                         notification_type,
                         title,
@@ -127,6 +136,7 @@ public class NotificationOutboxWriter {
                         version
                     ) values (
                         source.idempotency_key,
+                        source.notification_id,
                         source.user_id,
                         source.notification_type,
                         source.title,
@@ -139,6 +149,7 @@ public class NotificationOutboxWriter {
                     )
                     """,
                     idempotencyKey,
+                    notificationId,
                     userId,
                     notificationType.name(),
                     title,

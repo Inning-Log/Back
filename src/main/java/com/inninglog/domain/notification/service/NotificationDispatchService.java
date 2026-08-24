@@ -46,6 +46,7 @@ public class NotificationDispatchService {
     private final NotificationDeliveryTargetRepository targetRepository;
     private final UserPushRegistrationRepository registrationRepository;
     private final NotificationDeliveryService deliveryService;
+    private final NotificationPreferencePolicy preferencePolicy;
     private final NotificationPayloadCodec payloadCodec;
     private final NotificationDispatchProperties properties;
     private final NotificationMetrics metrics;
@@ -57,6 +58,7 @@ public class NotificationDispatchService {
             NotificationDeliveryTargetRepository targetRepository,
             UserPushRegistrationRepository registrationRepository,
             NotificationDeliveryService deliveryService,
+            NotificationPreferencePolicy preferencePolicy,
             NotificationPayloadCodec payloadCodec,
             NotificationDispatchProperties properties,
             NotificationMetrics metrics,
@@ -67,6 +69,7 @@ public class NotificationDispatchService {
         this.targetRepository = targetRepository;
         this.registrationRepository = registrationRepository;
         this.deliveryService = deliveryService;
+        this.preferencePolicy = preferencePolicy;
         this.payloadCodec = payloadCodec;
         this.properties = properties;
         this.metrics = metrics;
@@ -151,6 +154,20 @@ public class NotificationDispatchService {
             return ClaimAttempt.workedWithoutClaim();
         }
 
+        if (!preferencePolicy.isPushEnabled(outbox.getUserId(), outbox.getNotificationType())) {
+            int cancelledCount = batch.size();
+            targetRepository.deleteAll(batch);
+            targetRepository.flush();
+            metrics.recordCancelledPreference(outbox.getNotificationType(), cancelledCount);
+            completeOutboxWhenFinished(outbox, now);
+            log.info(
+                    "Push targets cancelled by recipient preference: outboxId={}, type={}, targetCount={}",
+                    outbox.getId(),
+                    outbox.getNotificationType(),
+                    cancelledCount);
+            return ClaimAttempt.workedWithoutClaim();
+        }
+
         Map<Long, UserPushRegistration> registrationsById = registrationRepository.findAllById(batch.stream()
                         .map(NotificationDeliveryTarget::getPushRegistrationId)
                         .toList()).stream()
@@ -191,7 +208,7 @@ public class NotificationDispatchService {
         PushNotification notification;
         try {
             notification = payloadCodec.decode(outbox).withSystemData(Map.of(
-                    "notificationId", String.valueOf(outbox.getId()),
+                    "notificationId", String.valueOf(outbox.getNotificationId()),
                     "schemaVersion", "1",
                     "occurredAt", outbox.getCreatedAt().toString(),
                     "audienceUserId", String.valueOf(outbox.getUserId())));
@@ -229,6 +246,13 @@ public class NotificationDispatchService {
         }
 
         NotificationOutbox outbox = pending.getFirst();
+        if (!preferencePolicy.isPushEnabled(outbox.getUserId(), outbox.getNotificationType())) {
+            outbox.markCompleted(false, now);
+            metrics.recordCancelledPreference(outbox.getNotificationType(), 0);
+            log.info("Push outbox cancelled by recipient preference: outboxId={}, type={}",
+                    outbox.getId(), outbox.getNotificationType());
+            return ClaimAttempt.workedWithoutClaim();
+        }
         List<UserPushRegistration> registrations = registrationRepository
                 .findEnabledRegistrationsByUserId(outbox.getUserId());
         if (registrations.isEmpty()) {

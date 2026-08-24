@@ -589,25 +589,25 @@ Note: '''
 
 Table notifications {
 id bigint [pk, increment, not null]
+event_key varchar(200) [not null]
 user_id bigint [not null, ref: > app_users.id]
-type notification_type [not null]
-actor_user_id bigint [ref: > app_users.id]
-game_id bigint [ref: > games.id]
-video_project_id bigint [ref: > video_projects.id]
+notification_type notification_type [not null]
 title varchar(100) [not null]
 body varchar(500)
+data_json text [not null]
 read_at timestamptz [note: 'NULL이면 읽지 않음']
 created_at timestamptz [not null]
 
 indexes {
-(user_id, created_at) [name: 'idx_notifications_user_created']
-(user_id, read_at, created_at) [name: 'idx_notifications_user_read_created']
+(user_id, event_key) [unique, name: 'uk_notifications_user_event']
+(user_id, id) [name: 'idx_notifications_user_id_desc']
+(user_id, read_at, id) [name: 'idx_notifications_user_unread']
 }
 
 Note: '''
 is_read는 read_at과 중복되므로 제거한다.
-related_type/related_id 대신 실제 FK 컬럼을 사용한다.
-마이그레이션에서는 read_at IS NULL인 사용자별 부분 인덱스를 추가한다.
+아직 존재하지 않는 제품 도메인의 FK를 미리 만들지 않고 data_json에 화면 이동 식별자를 저장한다.
+event_key는 같은 사용자에게 동일 도메인 이벤트의 inbox 중복 생성을 막는다.
 '''
 }
 
@@ -644,6 +644,7 @@ Note: '''
 Table notification_outbox {
 id bigint [pk, increment, not null]
 idempotency_key varchar(200) [not null]
+notification_id bigint [not null, unique, ref: > notifications.id]
 user_id bigint [not null, ref: > app_users.id]
 notification_type notification_type [not null]
 title varchar(100) [not null]

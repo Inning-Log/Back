@@ -28,6 +28,9 @@ public class NotificationOutbox {
     @Column(nullable = false, length = 200)
     private String idempotencyKey;
 
+    @Column(nullable = false, unique = true)
+    private Long notificationId;
+
     @Column(nullable = false)
     private Long userId;
 
@@ -66,6 +69,7 @@ public class NotificationOutbox {
 
     public NotificationOutbox(
             String idempotencyKey,
+            Long notificationId,
             Long userId,
             NotificationType notificationType,
             String title,
@@ -74,6 +78,7 @@ public class NotificationOutbox {
             Instant createdAt
     ) {
         this.idempotencyKey = idempotencyKey;
+        this.notificationId = notificationId;
         this.userId = userId;
         this.notificationType = notificationType;
         this.title = title;
@@ -107,6 +112,10 @@ public class NotificationOutbox {
 
     public Long getUserId() {
         return userId;
+    }
+
+    public Long getNotificationId() {
+        return notificationId;
     }
 
     public NotificationType getNotificationType() {
