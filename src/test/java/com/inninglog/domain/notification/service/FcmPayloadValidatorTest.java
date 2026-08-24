@@ -19,9 +19,20 @@ class FcmPayloadValidatorTest {
                 NotificationType.RECORD_REMINDER,
                 "기록 알림",
                 "9회가 끝나기 전에 기록해주세요.",
-                Map.of("gameId", "42", "deepLink", "inninglog://games/42/record"));
+                Map.of("gameId", "42", "link", "https://inning-log.example/games/42/record"));
 
         assertThatCode(() -> validator.validate(notification)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsAWebNotificationLinkThatIsNotAbsoluteHttps() {
+        assertThatThrownBy(() -> new PushNotification(
+                NotificationType.RECORD_REMINDER,
+                "기록 알림",
+                null,
+                Map.of("link", "/games/42")))
+                .isInstanceOf(InvalidPushPayloadException.class)
+                .hasMessageContaining("HTTPS");
     }
 
     @Test

@@ -1,117 +1,110 @@
-# Firebase 푸시 프론트 연동 필수사항
+# Web FCM 프론트 연동 필수사항
 
-## 1. 서버 계약
+## Firebase 설정
 
-- Firebase project ID: `inning-log`
-- Messaging sender ID: `782343400535`
-- `deviceId`: `FirebaseInstallations.instance.getId()`로 얻은 FID
-- `pushToken`: `FirebaseMessaging.instance.getToken()`으로 얻은 FCM registration token
+1. Firebase Console `inning-log` 프로젝트에서 Web 앱을 등록하고 Web config를 복사한다.
+2. `프로젝트 설정 > Cloud Messaging > Web Push 인증서`에서 VAPID key pair를 생성한다.
+3. Firebase JS SDK를 설치한다.
 
-`FirebaseInstallations.instance.getToken()`은 Installations 인증 토큰이므로 `pushToken`으로 보내면 안 된다.
+```bash
+npm install firebase
+```
 
-### 등록·갱신
+프론트의 public 환경변수 규칙에 맞춰 다음 값을 설정한다.
 
-```http
-PUT /api/notifications/push-token
-Authorization: Bearer {INNING_LOG_ACCESS_TOKEN}
-Content-Type: application/json
+```env
+FIREBASE_API_KEY=
+FIREBASE_AUTH_DOMAIN=
+FIREBASE_PROJECT_ID=inning-log
+FIREBASE_MESSAGING_SENDER_ID=782343400535
+FIREBASE_APP_ID=
+FIREBASE_VAPID_PUBLIC_KEY=
+```
 
-{
-  "platform": "ANDROID",
-  "deviceId": "{FID}",
-  "pushToken": "{FCM_REGISTRATION_TOKEN}"
+Web config와 VAPID public key는 클라이언트 공개 값이다. Firebase Admin 서비스 계정 JSON/private key는 프론트에 전달하거나 저장하지 않는다.
+
+## Service Worker
+
+동일 origin의 `/firebase-messaging-sw.js`를 빌드 결과에 포함하고 Firebase Messaging을 초기화한다.
+
+```ts
+import { initializeApp } from "firebase/app";
+import { getMessaging } from "firebase/messaging/sw";
+
+const app = initializeApp(firebaseConfig);
+getMessaging(app);
+```
+
+운영은 HTTPS가 필수이며 `localhost`만 예외다. 기존 PWA service worker가 있으면 별도로 만들지 말고 그 worker를 `serviceWorkerRegistration`으로 넘긴다.
+
+## FID 등록
+
+`onRegistered`를 먼저 구독한 뒤 `register`를 호출한다.
+
+```ts
+import {
+  getMessaging,
+  isSupported,
+  onMessage,
+  onRegistered,
+  onUnregistered,
+  register,
+} from "firebase/messaging";
+
+if (await isSupported()) {
+  const messaging = getMessaging(firebaseApp);
+  const serviceWorkerRegistration =
+    await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+
+  onRegistered(messaging, async (installationId) => {
+    const accessToken = getAccessToken();
+    if (!accessToken) return;
+
+    await fetch("/api/notifications/push-registration", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ platform: "WEB", installationId }),
+    });
+  });
+
+  onUnregistered(messaging, async (installationId) => {
+    await disableRegistrationBestEffort(installationId);
+  });
+
+  await register(messaging, {
+    vapidKey: FIREBASE_VAPID_PUBLIC_KEY,
+    serviceWorkerRegistration,
+  });
+
+  onMessage(messaging, handleForegroundMessage);
 }
 ```
 
-`platform`은 `ANDROID` 또는 `IOS`다.
+동기화 시점:
 
-### 비활성화
+- 로그인 완료 후
+- 로그인 상태로 앱 시작 시
+- `onRegistered`가 다시 호출될 때
+
+Android에 설치한 PWA도 `platform: "WEB"`이다. 향후 네이티브 Android 앱만 `platform: "ANDROID"`를 사용한다.
+
+## 로그아웃과 계정 전환
+
+로그아웃 시 access token을 지우기 전에 best-effort로 호출한다.
 
 ```http
-DELETE /api/notifications/push-token?deviceId={FID}
-Authorization: Bearer {INNING_LOG_ACCESS_TOKEN}
+DELETE /api/notifications/push-registration?installationId={FID}
+Authorization: Bearer {ACCESS_TOKEN}
 ```
 
-## 2. Firebase 설정
+일반 로그아웃에서는 Firebase `unregister()`를 호출하지 않는다. 새 계정 로그인 후 같은 FID를 PUT하면 서버가 설치 소유자를 새 사용자로 변경한다.
 
-필요 패키지:
+## 수신 처리
 
-```bash
-flutter pub add firebase_core
-flutter pub add firebase_messaging
-flutter pub add firebase_app_installations
-dart pub global activate flutterfire_cli
-flutterfire configure --project=inning-log
-```
-
-Firebase Console 앱 등록에 실제 값이 필요하다.
-
-- Android `applicationId`
-- iOS Bundle ID
-
-생성 파일:
-
-- `android/app/google-services.json`
-- `ios/Runner/GoogleService-Info.plist`
-- `lib/firebase_options.dart`
-
-Android:
-
-- Google Services Gradle plugin 적용
-- Android 13 이상 알림 권한 요청
-- Android 8 이상 notification channel과 기본 아이콘 설정
-
-iOS:
-
-- Xcode `Push Notifications` capability 활성화
-- `Background Modes`에서 `Background fetch`, `Remote notifications` 활성화
-- APNs 인증 키를 Firebase Console Cloud Messaging 설정에 업로드
-- `FirebaseAppDelegateProxyEnabled=NO`를 설정하지 않음
-
-## 3. 등록 호출 시점
-
-로그인된 사용자의 access token이 있을 때 다음 시점에 FID와 FCM token을 다시 읽어 PUT한다.
-
-- 로그인 완료 직후
-- 로그인 상태로 앱 시작
-- 앱 foreground 복귀
-- `FirebaseMessaging.instance.onTokenRefresh`
-- `FirebaseInstallations.instance.onIdChange`
-- 알림 권한을 다시 허용한 경우
-
-iOS는 APNs token이 준비된 뒤 FCM token을 요청한다. APNs/FCM token이 아직 `null`이면 짧은 제한 재시도 후 앱 foreground 복귀 때 다시 동기화한다.
-
-`onTokenRefresh`와 `onIdChange`가 동시에 발생할 수 있으므로 프론트에서 단일-flight, mutex 또는 debounce로 PUT을 직렬화한다.
-
-알림 권한이 거부되면 현재 FID로 DELETE를 best-effort 호출한다.
-
-## 4. 로그아웃과 계정 전환
-
-1. 이전 사용자의 access token이 유효할 때 DELETE를 best-effort 호출한다.
-2. 이전 사용자 인증 정보를 삭제한다.
-3. 새 사용자가 로그인하면 현재 FID와 FCM token을 PUT한다.
-
-일반 로그아웃에서는 아래 호출을 하지 않는다.
-
-- `FirebaseInstallations.instance.delete()`
-- `FirebaseMessaging.instance.deleteToken()`
-
-DELETE 실패 때문에 로그아웃을 계속 막지 않는다. 새 사용자의 PUT이 같은 설치의 소유권을 새 계정으로 갱신한다.
-
-## 5. 수신 처리
-
-다음 경로를 모두 구현한다.
-
-- foreground: `FirebaseMessaging.onMessage`
-- background 알림 탭: `FirebaseMessaging.onMessageOpenedApp`
-- 종료 상태 알림 탭: `FirebaseMessaging.instance.getInitialMessage()`
-- background data 처리: `FirebaseMessaging.onBackgroundMessage`
-
-백그라운드 핸들러는 top-level 함수와 `@pragma('vm:entry-point')`를 사용한다.
-
-foreground에서 배너를 보여주려면 `flutter_local_notifications` 등으로 로컬 알림을 구현한다.
-
-## 6. 공통 payload v1
+서버 payload의 `data` 형식:
 
 ```json
 {
@@ -120,56 +113,24 @@ foreground에서 배너를 보여주려면 `flutter_local_notifications` 등으�
   "schemaVersion": "1",
   "occurredAt": "2026-08-24T04:00:00Z",
   "audienceUserId": "42",
-  "deepLink": "inninglog://friends/42"
+  "requestId": "10",
+  "actorUserId": "7",
+  "link": "https://{FRONTEND_HOST}/friends/requests/10"
 }
 ```
 
-처리 규칙:
+- foreground는 `onMessage`에서 앱 내 알림을 표시한다.
+- background/종료 상태는 브라우저가 알림을 표시한다.
+- 서버는 `link`를 Web FCM 클릭 URL로 설정하므로 반드시 운영 HTTPS URL을 보낸다.
+- `audienceUserId`가 현재 사용자와 다르면 처리하지 않는다.
+- `notificationId`로 중복 화면 이동을 막는다.
+- 알 수 없는 `schemaVersion`/`type`은 무시한다.
+- FID와 payload 원문을 로그·분석·crash report에 남기지 않는다.
 
-- `audienceUserId`가 현재 로그인 사용자 ID와 다르면 화면 이동과 앱 내부 처리를 중단한다.
-- `notificationId`로 중복 화면 이동과 중복 로컬 알림을 방지한다.
-- 모르는 `schemaVersion`, `type`, 추가 key가 와도 앱이 crash하지 않게 처리한다.
-- token, FID, payload 원문을 앱 로그·분석 이벤트·crash report에 남기지 않는다.
+## 확인 항목
 
-알림 타입:
-
-| type | 추가 data |
-|---|---|
-| `FRIEND_REQUEST` | `requestId`, `actorUserId`, `deepLink` |
-| `FRIEND_ACCEPTED` | `friendshipId`, `actorUserId`, `deepLink` |
-| `TIMELINE_REACTION` | `timelineId`, `actorUserId`, `reactionType`, `deepLink` |
-| `TIMELINE_COMMENT` | `timelineId`, `commentId`, `actorUserId`, `deepLink` |
-| `GAME_INNING_STARTED` | `gameId`, `inning`, `half`, `deepLink` |
-| `GAME_INNING_ENDED` | `gameId`, `inning`, `half`, `deepLink` |
-| `GAME_SCORE_CHANGED` | `gameId`, `homeScore`, `awayScore`, `deepLink` |
-| `RECORD_REMINDER` | `gameId`, `inning`, `deepLink` |
-| `GENERATED_VIDEO_READY` | `videoId`, `deepLink` |
-| `GENERATED_VIDEO_FAILED` | `videoId`, `deepLink` |
-
-## 7. 저장소 포함 여부
-
-프론트 저장소에 포함 가능:
-
-- `firebase_options.dart`
-- `google-services.json`
-- `GoogleService-Info.plist`
-- Firebase client API key, project ID, sender ID, App ID
-
-프론트에 전달하거나 Git에 저장하면 안 됨:
-
-- Firebase Admin 서비스 계정 JSON과 private key
-- APNs `.p8` 원본
-- FCM legacy server key
-- Google OAuth client secret
-- AWS access key/secret
-
-## 8. 완료 체크리스트
-
-- Android/iOS 앱을 실제 identifier로 Firebase Console에 등록
-- 설정 파일과 APNs 설정 완료
-- 로그인·앱 시작·foreground 복귀·token/FID 변경 시 PUT 확인
-- 로그아웃 시 DELETE 후 다른 계정 PUT 확인
-- foreground/background/terminated 수신 확인
-- `audienceUserId` 검사와 `notificationId` 중복 방지 확인
-- 타입별 deep link 처리 확인
-- Admin credential이 프론트 저장소와 빌드 산출물에 없는지 확인
+- Chrome 데스크톱과 Android Chrome/PWA에서 권한 허용 및 FID PUT 성공
+- foreground, background, 브라우저 종료 상태 수신
+- 알림 클릭 시 `link` 이동
+- 로그아웃 후 이전 사용자 등록 비활성화
+- 같은 설치에서 다른 계정 로그인 시 새 사용자로 소유권 이전

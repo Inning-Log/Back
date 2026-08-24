@@ -3,17 +3,17 @@ package com.inninglog.domain.notification.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.inninglog.domain.notification.dto.PushTokenRegistrationRequest;
+import com.inninglog.domain.notification.dto.PushRegistrationRequest;
 import com.inninglog.domain.notification.entity.DevicePlatform;
 import com.inninglog.domain.notification.entity.NotificationDeliveryTarget;
 import com.inninglog.domain.notification.entity.NotificationOutbox;
 import com.inninglog.domain.notification.entity.NotificationOutboxStatus;
 import com.inninglog.domain.notification.entity.NotificationTargetStatus;
 import com.inninglog.domain.notification.entity.NotificationType;
-import com.inninglog.domain.notification.entity.UserPushToken;
+import com.inninglog.domain.notification.entity.UserPushRegistration;
 import com.inninglog.domain.notification.repository.NotificationDeliveryTargetRepository;
 import com.inninglog.domain.notification.repository.NotificationOutboxRepository;
-import com.inninglog.domain.notification.repository.UserPushTokenRepository;
+import com.inninglog.domain.notification.repository.UserPushRegistrationRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.repository.UserRepository;
 import java.util.List;
@@ -56,7 +56,7 @@ class NotificationQueueDispatchIntegrationTest {
     private NotificationDispatchService dispatchService;
 
     @Autowired
-    private PushTokenRegistrationService registrationService;
+    private PushRegistrationService registrationService;
 
     @Autowired
     private NotificationOutboxRepository outboxRepository;
@@ -65,7 +65,7 @@ class NotificationQueueDispatchIntegrationTest {
     private NotificationDeliveryTargetRepository targetRepository;
 
     @Autowired
-    private UserPushTokenRepository pushTokenRepository;
+    private UserPushRegistrationRepository registrationRepository;
 
     @Autowired
     private UserRepository userRepository;
@@ -83,7 +83,7 @@ class NotificationQueueDispatchIntegrationTest {
     void clearNotificationState() {
         targetRepository.deleteAll();
         outboxRepository.deleteAll();
-        pushTokenRepository.deleteAll();
+        registrationRepository.deleteAll();
         pushGateway.reset();
     }
 
@@ -188,7 +188,7 @@ class NotificationQueueDispatchIntegrationTest {
 
     @Test
     void dispatchCallsGatewayOutsideTransactionAndCompletesSuccessfully() throws Exception {
-        User user = createUserWithRegistration("dispatch-success@example.com", "success-fid", "success-token");
+        User user = createUserWithRegistration("dispatch-success@example.com", "success-fid");
         Long outboxId = enqueue("success-event", user.getId());
 
         assertThat(dispatchService.dispatchNext()).isTrue();
@@ -205,7 +205,7 @@ class NotificationQueueDispatchIntegrationTest {
 
     @Test
     void retryableFailureRetriesOnlyTheTargetAndThenSucceeds() throws Exception {
-        User user = createUserWithRegistration("dispatch-retry@example.com", "retry-fid", "retry-token");
+        User user = createUserWithRegistration("dispatch-retry@example.com", "retry-fid");
         Long outboxId = enqueue("retry-event", user.getId());
         pushGateway.outcome = PushTargetOutcome.RETRYABLE_FAILURE;
 
@@ -226,7 +226,7 @@ class NotificationQueueDispatchIntegrationTest {
 
     @Test
     void retryableFailureBecomesDeadAtTheConfiguredAttemptLimit() throws Exception {
-        User user = createUserWithRegistration("dispatch-dead@example.com", "dead-fid", "dead-token");
+        User user = createUserWithRegistration("dispatch-dead@example.com", "dead-fid");
         Long outboxId = enqueue("dead-event", user.getId());
         pushGateway.outcome = PushTargetOutcome.RETRYABLE_FAILURE;
 
@@ -245,14 +245,14 @@ class NotificationQueueDispatchIntegrationTest {
     @Test
     void ownershipChangeCancelsTheOldUsersPendingTarget() throws Exception {
         User oldUser = createUserWithRegistration(
-                "dispatch-old-owner@example.com", "ownership-fid", "ownership-token-a");
+                "dispatch-old-owner@example.com", "ownership-fid");
         User newUser = createUser("dispatch-new-owner@example.com");
         Long outboxId = enqueue("ownership-event", oldUser.getId());
 
         assertThat(dispatchService.dispatchNext()).isTrue();
         registrationService.register(
                 newUser.getId().toString(),
-                new PushTokenRegistrationRequest(DevicePlatform.ANDROID, "ownership-fid", "ownership-token-b"));
+                new PushRegistrationRequest(DevicePlatform.ANDROID, "ownership-fid"));
         assertThat(dispatchWithinOneSecond()).isTrue();
 
         assertThat(pushGateway.calls.get()).isZero();
@@ -263,19 +263,20 @@ class NotificationQueueDispatchIntegrationTest {
     }
 
     @Test
-    void invalidResponseForAnOldTokenDoesNotDisableTheRotatedToken() throws Exception {
-        User user = createUserWithRegistration("dispatch-rotation@example.com", "rotation-fid", "rotation-token-a");
+    void staleInvalidResponseDoesNotDisableARefreshedFidRegistration() throws Exception {
+        User user = createUserWithRegistration("dispatch-refresh@example.com", "refresh-fid");
         enqueue("rotation-event", user.getId());
         pushGateway.outcome = PushTargetOutcome.INVALID;
         pushGateway.beforeResponse = () -> registrationService.register(
                 user.getId().toString(),
-                new PushTokenRegistrationRequest(DevicePlatform.ANDROID, "rotation-fid", "rotation-token-b"));
+                new PushRegistrationRequest(DevicePlatform.ANDROID, "refresh-fid"));
 
         assertThat(dispatchService.dispatchNext()).isTrue();
         assertThat(dispatchWithinOneSecond()).isTrue();
 
-        UserPushToken registration = pushTokenRepository.findByDeviceId("rotation-fid").orElseThrow();
-        assertThat(registration.getPushToken()).isEqualTo("rotation-token-b");
+        UserPushRegistration registration = registrationRepository
+                .findByInstallationId("refresh-fid")
+                .orElseThrow();
         assertThat(registration.isEnabled()).isTrue();
         assertThat(targetRepository.findAll().getFirst().getStatus())
                 .isEqualTo(NotificationTargetStatus.INVALID);
@@ -283,7 +284,7 @@ class NotificationQueueDispatchIntegrationTest {
 
     @Test
     void expiredWorkerClaimsAreBoundedByTheMaximumAttemptCount() throws Exception {
-        User user = createUserWithRegistration("dispatch-crash@example.com", "crash-fid", "crash-token");
+        User user = createUserWithRegistration("dispatch-crash@example.com", "crash-fid");
         Long outboxId = enqueue("crash-event", user.getId());
 
         assertThat(dispatchService.dispatchNext()).isTrue();
@@ -357,11 +358,11 @@ class NotificationQueueDispatchIntegrationTest {
         return userRepository.save(new User(email, null));
     }
 
-    private User createUserWithRegistration(String email, String deviceId, String pushToken) {
+    private User createUserWithRegistration(String email, String installationId) {
         User user = createUser(email);
         registrationService.register(
                 user.getId().toString(),
-                new PushTokenRegistrationRequest(DevicePlatform.ANDROID, deviceId, pushToken));
+                new PushRegistrationRequest(DevicePlatform.ANDROID, installationId));
         return user;
     }
 

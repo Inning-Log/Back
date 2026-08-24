@@ -18,20 +18,20 @@ import java.time.Instant;
 
 @Entity
 @Table(
-        name = "user_push_tokens",
+        name = "user_push_registrations",
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_user_push_tokens_push_token", columnNames = "push_token"),
-                @UniqueConstraint(name = "uk_user_push_tokens_device", columnNames = "device_id")
+                @UniqueConstraint(name = "uk_user_push_registrations_installation", columnNames = "installation_id")
         }
 )
-public class UserPushToken {
+public class UserPushRegistration {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "user_id", nullable = false, foreignKey = @ForeignKey(name = "fk_user_push_tokens_user"))
+    @JoinColumn(name = "user_id", nullable = false,
+            foreignKey = @ForeignKey(name = "fk_user_push_registrations_user"))
     private User user;
 
     @Enumerated(EnumType.STRING)
@@ -39,10 +39,7 @@ public class UserPushToken {
     private DevicePlatform platform;
 
     @Column(nullable = false, length = 255)
-    private String deviceId;
-
-    @Column(nullable = false, unique = true, length = 500)
-    private String pushToken;
+    private String installationId;
 
     @Column(nullable = false)
     private boolean enabled;
@@ -56,45 +53,47 @@ public class UserPushToken {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    protected UserPushToken() {
+    @Column(nullable = false)
+    private long registrationRevision;
+
+    protected UserPushRegistration() {
     }
 
-    public UserPushToken(
+    public UserPushRegistration(
             User user,
             DevicePlatform platform,
-            String deviceId,
-            String pushToken,
+            String installationId,
             Instant registeredAt
     ) {
         this.user = user;
         this.platform = platform;
-        this.deviceId = deviceId;
-        this.pushToken = pushToken;
+        this.installationId = installationId;
         this.enabled = true;
         this.lastSeenAt = registeredAt;
         this.createdAt = registeredAt;
         this.updatedAt = registeredAt;
+        this.registrationRevision = 1L;
     }
 
     public void register(
             User user,
             DevicePlatform platform,
-            String deviceId,
-            String pushToken,
+            String installationId,
             Instant registeredAt
     ) {
         this.user = user;
         this.platform = platform;
-        this.deviceId = deviceId;
-        this.pushToken = pushToken;
+        this.installationId = installationId;
         this.enabled = true;
         this.lastSeenAt = registeredAt;
         this.updatedAt = registeredAt;
+        this.registrationRevision++;
     }
 
     public void disable(Instant disabledAt) {
         this.enabled = false;
         this.updatedAt = disabledAt;
+        this.registrationRevision++;
     }
 
     public Long getId() {
@@ -109,12 +108,8 @@ public class UserPushToken {
         return platform;
     }
 
-    public String getDeviceId() {
-        return deviceId;
-    }
-
-    public String getPushToken() {
-        return pushToken;
+    public String getInstallationId() {
+        return installationId;
     }
 
     public boolean isEnabled() {
@@ -123,5 +118,9 @@ public class UserPushToken {
 
     public Instant getLastSeenAt() {
         return lastSeenAt;
+    }
+
+    public long getRegistrationRevision() {
+        return registrationRevision;
     }
 }

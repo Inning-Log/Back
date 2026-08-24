@@ -1,6 +1,8 @@
 package com.inninglog.domain.notification.service;
 
 import com.inninglog.domain.notification.entity.NotificationType;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -29,6 +31,7 @@ public record PushNotification(
             data.forEach(PushNotification::validateDataEntry);
             normalizedData.putAll(data);
         }
+        validateLink(normalizedData.get("link"));
         normalizedData.put("type", type.name());
         data = Map.copyOf(normalizedData);
     }
@@ -53,6 +56,20 @@ public record PushNotification(
                 || normalizedKey.startsWith("google.")
                 || normalizedKey.startsWith("gcm.")) {
             throw new InvalidPushPayloadException("FCM data key is reserved: " + key);
+        }
+    }
+
+    private static void validateLink(String link) {
+        if (link == null) {
+            return;
+        }
+        try {
+            URI uri = new URI(link);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
+                throw new InvalidPushPayloadException("FCM link must be an absolute HTTPS URL.");
+            }
+        } catch (URISyntaxException exception) {
+            throw new InvalidPushPayloadException("FCM link must be an absolute HTTPS URL.", exception);
         }
     }
 }

@@ -8,6 +8,8 @@ import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.MulticastMessage;
 import com.google.firebase.messaging.Notification;
 import com.google.firebase.messaging.SendResponse;
+import com.google.firebase.messaging.WebpushConfig;
+import com.google.firebase.messaging.WebpushFcmOptions;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -42,9 +44,6 @@ public class FirebasePushGateway implements PushGateway {
             ErrorCode.UNKNOWN
     );
 
-    // Flutter FCM clients currently register with a registration token. Firebase 9.10 keeps
-    // token multicast for the migration period while recommending FIDs for newer clients.
-    @SuppressWarnings("deprecation")
     @Override
     public PushBatchResult send(PushNotification notification, List<PushTarget> targets) {
         if (targets.isEmpty()) {
@@ -59,11 +58,17 @@ public class FirebasePushGateway implements PushGateway {
             notificationBuilder.setBody(notification.body());
         }
 
-        MulticastMessage message = MulticastMessage.builder()
+        MulticastMessage.Builder messageBuilder = MulticastMessage.builder()
                 .setNotification(notificationBuilder.build())
                 .putAllData(notification.data())
-                .addAllTokens(targets.stream().map(PushTarget::pushToken).toList())
-                .build();
+                .addAllFids(targets.stream().map(PushTarget::installationId).toList());
+        String link = notification.data().get("link");
+        if (link != null) {
+            messageBuilder.setWebpushConfig(WebpushConfig.builder()
+                    .setFcmOptions(WebpushFcmOptions.withLink(link))
+                    .build());
+        }
+        MulticastMessage message = messageBuilder.build();
 
         try {
             BatchResponse response = firebaseMessaging.sendEachForMulticast(message);
@@ -117,7 +122,8 @@ public class FirebasePushGateway implements PushGateway {
             MessagingErrorCode errorCode,
             ErrorCode platformErrorCode
     ) {
-        if (errorCode == MessagingErrorCode.UNREGISTERED) {
+        if (errorCode == MessagingErrorCode.UNREGISTERED
+                || (errorCode == null && platformErrorCode == ErrorCode.NOT_FOUND)) {
             return PushTargetOutcome.INVALID;
         }
         return classifyBatch(errorCode, platformErrorCode);

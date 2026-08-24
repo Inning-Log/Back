@@ -1,4 +1,9 @@
 package com.inninglog.domain.notification.service;
 
-public record PushTarget(Long deliveryTargetId, Long registrationId, String pushToken) {
+public record PushTarget(
+        Long deliveryTargetId,
+        Long registrationId,
+        String installationId,
+        long registrationRevision
+) {
 }
