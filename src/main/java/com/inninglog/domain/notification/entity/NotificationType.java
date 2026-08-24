@@ -3,7 +3,11 @@ package com.inninglog.domain.notification.entity;
 public enum NotificationType {
     FRIEND_REQUEST,
     FRIEND_ACCEPTED,
-    GAME_PROGRESS,
+    TIMELINE_COMMENT,
+    TIMELINE_REACTION,
+    GAME_INNING_STARTED,
+    GAME_INNING_ENDED,
+    GAME_SCORE_CHANGED,
     RECORD_REMINDER,
     GENERATED_VIDEO_READY,
     GENERATED_VIDEO_FAILED

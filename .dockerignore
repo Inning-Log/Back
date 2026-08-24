@@ -7,5 +7,11 @@ out
 .idea
 .vscode
 *.log
+*firebase-adminsdk*.json
+*adminsdk*.json
+*firebase-service-account*.json
+*service-account*.json
+*service_account*.json
+firebase-admin*.json
 docs
 README.md

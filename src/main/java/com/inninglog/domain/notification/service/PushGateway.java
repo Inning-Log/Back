@@ -4,5 +4,5 @@ import java.util.List;
 
 public interface PushGateway {
 
-    PushBatchResult send(PushNotification notification, List<String> pushTokens);
+    PushBatchResult send(PushNotification notification, List<PushTarget> targets);
 }

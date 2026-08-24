@@ -21,7 +21,7 @@ import java.time.Instant;
         name = "user_push_tokens",
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_user_push_tokens_push_token", columnNames = "push_token"),
-                @UniqueConstraint(name = "uk_user_push_tokens_user_device", columnNames = {"user_id", "device_id"})
+                @UniqueConstraint(name = "uk_user_push_tokens_device", columnNames = "device_id")
         }
 )
 public class UserPushToken {

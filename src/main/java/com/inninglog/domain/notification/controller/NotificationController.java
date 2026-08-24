@@ -37,7 +37,7 @@ public class NotificationController {
 
     @Operation(
             summary = "푸시 토큰 등록",
-            description = "현재 기기의 FCM 토큰을 등록하거나 갱신합니다. 같은 토큰으로 다른 계정에 로그인하면 소유권을 현재 사용자로 이전합니다."
+            description = "deviceId에는 Firebase Installation ID(FID), pushToken에는 FCM registration token을 보냅니다. 같은 설치에서 다른 계정에 로그인하면 소유권을 현재 사용자로 이전합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "푸시 토큰 등록 또는 갱신 성공",
@@ -69,7 +69,7 @@ public class NotificationController {
     @DeleteMapping("/push-token")
     public ResponseEntity<Void> disablePushToken(
             JwtAuthenticationToken authentication,
-            @Parameter(description = "등록 시 사용한 기기 식별자", example = "installation-9f2a", required = true)
+            @Parameter(description = "등록 시 deviceId로 보낸 Firebase Installation ID(FID)", example = "cVh7...installation-fid", required = true)
             @RequestParam @NotBlank @Size(max = 255) String deviceId
     ) {
         pushTokenRegistrationService.disable(authentication.getName(), deviceId);

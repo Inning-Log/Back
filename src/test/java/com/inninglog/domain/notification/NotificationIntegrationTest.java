@@ -10,8 +10,13 @@ import com.inninglog.domain.notification.entity.UserPushToken;
 import com.inninglog.domain.notification.repository.UserPushTokenRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.repository.UserRepository;
+import com.inninglog.domain.user.service.AccountDeletionService;
 import com.inninglog.global.security.JwtTokenProvider;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +42,9 @@ class NotificationIntegrationTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private AccountDeletionService accountDeletionService;
 
     @BeforeEach
     void clearPushTokens() {
@@ -89,6 +97,54 @@ class NotificationIntegrationTest {
     }
 
     @Test
+    void sameInstallationMovesToTheNewUserAndLateLogoutCannotDisableTheNewOwner() throws Exception {
+        User firstUser = userRepository.save(new User("installation-first@example.com", null));
+        User secondUser = userRepository.save(new User("installation-second@example.com", null));
+
+        register(accessToken(firstUser), "ANDROID", "shared-installation", "first-token")
+                .andExpect(status().isOk());
+        register(accessToken(secondUser), "ANDROID", "shared-installation", "second-token")
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/notifications/push-token")
+                        .header("Authorization", "Bearer " + accessToken(firstUser))
+                        .queryParam("deviceId", "shared-installation"))
+                .andExpect(status().isNoContent());
+
+        UserPushToken registration = pushTokenRepository.findByDeviceId("shared-installation").orElseThrow();
+        assertThat(registration.getUserId()).isEqualTo(secondUser.getId());
+        assertThat(registration.getPushToken()).isEqualTo("second-token");
+        assertThat(registration.isEnabled()).isTrue();
+        assertThat(pushTokenRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentRegistrationForTheSameInstallationDoesNotViolateUniqueConstraints() throws Exception {
+        User firstUser = userRepository.save(new User("concurrent-first@example.com", null));
+        User secondUser = userRepository.save(new User("concurrent-second@example.com", null));
+        String firstAccessToken = accessToken(firstUser);
+        String secondAccessToken = accessToken(secondUser);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Integer> first = executor.submit(() -> concurrentRegister(
+                    ready, start, firstAccessToken, "shared-concurrent-installation", "concurrent-token-a"));
+            Future<Integer> second = executor.submit(() -> concurrentRegister(
+                    ready, start, secondAccessToken, "shared-concurrent-installation", "concurrent-token-b"));
+
+            ready.await();
+            start.countDown();
+
+            assertThat(first.get()).isEqualTo(200);
+            assertThat(second.get()).isEqualTo(200);
+        }
+
+        assertThat(pushTokenRepository.findByDeviceId("shared-concurrent-installation")).isPresent();
+        assertThat(pushTokenRepository.count()).isEqualTo(1);
+    }
+
+    @Test
     void pushTokenEndpointsRequireAuthenticationAndValidateInput() throws Exception {
         mockMvc.perform(put("/api/notifications/push-token")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -104,6 +160,20 @@ class NotificationIntegrationTest {
         User user = userRepository.save(new User("push-validation@example.com", null));
         register(accessToken(user), "ANDROID", "", "")
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void accountDeletionDisablesAllPushRegistrations() throws Exception {
+        User user = userRepository.save(new User("push-deleted-user@example.com", null));
+        register(accessToken(user), "ANDROID", "deleted-device", "deleted-token")
+                .andExpect(status().isOk());
+
+        accountDeletionService.deleteCurrentUser(user.getId().toString());
+
+        assertThat(pushTokenRepository.findByDeviceId("deleted-device"))
+                .get()
+                .extracting(UserPushToken::isEnabled)
+                .isEqualTo(false);
     }
 
     private org.springframework.test.web.servlet.ResultActions register(
@@ -122,6 +192,21 @@ class NotificationIntegrationTest {
                           "pushToken": "%s"
                         }
                         """.formatted(platform, deviceId, pushToken)));
+    }
+
+    private int concurrentRegister(
+            CountDownLatch ready,
+            CountDownLatch start,
+            String accessToken,
+            String deviceId,
+            String pushToken
+    ) throws Exception {
+        ready.countDown();
+        start.await();
+        return register(accessToken, "ANDROID", deviceId, pushToken)
+                .andReturn()
+                .getResponse()
+                .getStatus();
     }
 
     private String accessToken(User user) {

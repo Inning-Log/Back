@@ -88,10 +88,31 @@ REJECTED
 Enum notification_type {
 FRIEND_REQUEST
 FRIEND_ACCEPTED
-GAME_PROGRESS
+TIMELINE_COMMENT
+TIMELINE_REACTION
+GAME_INNING_STARTED
+GAME_INNING_ENDED
+GAME_SCORE_CHANGED
 RECORD_REMINDER
 GENERATED_VIDEO_READY
 GENERATED_VIDEO_FAILED
+}
+
+Enum notification_outbox_status {
+PENDING
+PROCESSING
+COMPLETED
+COMPLETED_WITH_FAILURES
+}
+
+Enum notification_target_status {
+PENDING
+PROCESSING
+RETRY
+SENT
+INVALID
+DEAD
+CANCELLED_OWNERSHIP
 }
 
 Enum device_platform {
@@ -553,10 +574,11 @@ Table notification_settings {
 user_id bigint [pk, not null, ref: > app_users.id]
 game_progress_enabled boolean [not null, default: true]
 record_reminder_enabled boolean [not null, default: true]
+social_reaction_enabled boolean [not null, default: true]
 updated_at timestamptz [not null]
 
 Note: '''
-댓글과 반응 기능은 MVP에서 제외하므로 comment_reaction_enabled를 제거한다.
+타임라인 반응은 MVP에 포함하고 댓글은 후순위로 두되 같은 설정 묶음을 사용한다.
 설정은 앱 내 알림 생성이 아니라 푸시 발송 여부를 제어한다.
 '''
 }
@@ -597,20 +619,79 @@ Table user_push_tokens {
 id bigint [pk, increment, not null]
 user_id bigint [not null, ref: > app_users.id]
 platform device_platform [not null]
-device_id varchar(255) [note: '앱 설치 또는 기기 식별자']
-push_token varchar(500) [not null, unique, note: 'FCM/APNs 토큰']
+device_id varchar(255) [not null, unique, note: 'Firebase Installation ID(FID)']
+push_token varchar(500) [not null, unique, note: 'FCM registration token']
 enabled boolean [not null, default: true]
 last_seen_at timestamptz [note: '만료 토큰 정리 기준']
 created_at timestamptz [not null]
 updated_at timestamptz [not null]
 
 indexes {
-(user_id, device_id) [unique, name: 'uq_user_push_tokens_user_device']
+device_id [unique, name: 'uk_user_push_tokens_device']
 (user_id, enabled) [name: 'idx_user_push_tokens_user_enabled']
 }
 
 Note: '''
-device_id가 NULL이면 PostgreSQL UNIQUE 특성상 여러 행을 허용한다.
-동일 push_token이 다른 사용자로 로그인되면 기존 행의 소유자를 갱신한다.
+동일 FID 또는 push_token이 다른 사용자로 로그인되면 기존 행의 소유자를 갱신한다.
+push_token은 FID와 다른 값이며 서버는 현재 token multicast로 발송한다.
+'''
+}
+
+// ======================================================
+// 19. NOTIFICATION OUTBOX
+// ======================================================
+
+Table notification_outbox {
+id bigint [pk, increment, not null]
+idempotency_key varchar(200) [not null]
+user_id bigint [not null, ref: > app_users.id]
+notification_type notification_type [not null]
+title varchar(100) [not null]
+body varchar(500)
+data_json text [not null]
+status notification_outbox_status [not null, default: 'PENDING']
+created_at timestamptz [not null]
+updated_at timestamptz [not null]
+completed_at timestamptz
+version bigint [not null, default: 0]
+
+indexes {
+(user_id, idempotency_key) [unique, name: 'uk_notification_outbox_user_idempotency']
+(status, created_at) [name: 'idx_notification_outbox_status_created']
+}
+
+Note: '''
+도메인 변경과 같은 트랜잭션에서 생성하고 FCM 네트워크 호출은 worker가 별도로 수행한다.
+idempotency_key는 같은 사용자에게 동일 도메인 이벤트가 중복 enqueue되는 것을 막는다.
+'''
+}
+
+// ======================================================
+// 20. NOTIFICATION DELIVERY TARGETS
+// ======================================================
+
+Table notification_delivery_targets {
+id bigint [pk, increment, not null]
+outbox_id bigint [not null, ref: > notification_outbox.id]
+push_registration_id bigint [not null, note: '등록 삭제/소유권 이전을 허용하기 위해 의도적으로 FK 없음']
+status notification_target_status [not null, default: 'PENDING']
+attempt_count int [not null, default: 0]
+next_attempt_at timestamptz [not null]
+claim_token varchar(36)
+last_error_code varchar(80)
+created_at timestamptz [not null]
+updated_at timestamptz [not null]
+sent_at timestamptz
+version bigint [not null, default: 0]
+
+indexes {
+(outbox_id, push_registration_id) [unique, name: 'uk_notification_target_outbox_registration']
+(status, next_attempt_at, id) [name: 'idx_notification_target_ready']
+(outbox_id, status) [name: 'idx_notification_target_outbox_status']
+}
+
+Note: '''
+PROCESSING claim_token과 next_attempt_at lease로 worker crash 후 재처리한다.
+전송은 at-least-once이며 성공한 target은 실패 target 재시도에 포함하지 않는다.
 '''
 }

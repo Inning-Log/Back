@@ -18,11 +18,8 @@ public class FirebaseConfig {
     @Bean
     FirebaseApp firebaseApp(FirebaseProperties properties) throws IOException {
         FirebaseOptions.Builder options = FirebaseOptions.builder()
-                .setCredentials(GoogleCredentials.getApplicationDefault());
-
-        if (properties.projectId() != null && !properties.projectId().isBlank()) {
-            options.setProjectId(properties.projectId().trim());
-        }
+                .setCredentials(GoogleCredentials.getApplicationDefault())
+                .setProjectId(properties.projectId());
 
         return FirebaseApp.initializeApp(options.build());
     }

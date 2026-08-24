@@ -123,7 +123,17 @@ DELETE /api/notifications/push-token?deviceId=installation-id
 Authorization: Bearer INNING_LOG_JWT
 ```
 
-Backend use cases send a typed notification through
-`NotificationDeliveryService.sendToUser`. Delivery automatically batches up to
-500 targets per Firebase request and disables tokens reported as unregistered.
+`deviceId` is the Firebase Installation ID (FID), while `pushToken` is the FCM
+registration token. They are intentionally different values. Backend domain use
+cases enqueue a typed notification with `NotificationQueueService.enqueueToUser`
+inside their business transaction. FCM delivery then runs outside that
+transaction through a target-level outbox, processing lease, bounded retry, and
+invalid-token cleanup.
+
+The queue infrastructure does not create product events on its own. Friend,
+timeline, game, reminder, preference, and notification-inbox domains still need
+to call the queue as they are implemented. See:
+
+- [Frontend Firebase integration](docs/firebase-push-frontend-integration.md)
+- [Backend notification catalog and operations](docs/notification-backend-spec.md)
 

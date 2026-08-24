@@ -1,6 +1,7 @@
 package com.inninglog.domain.user.service;
 
 import com.inninglog.domain.auth.repository.AuthRefreshTokenRepository;
+import com.inninglog.domain.notification.repository.UserPushTokenRepository;
 import com.inninglog.domain.oauth.repository.OAuthAccountRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.exception.UserNotFoundException;
@@ -16,17 +17,20 @@ public class AccountDeletionService {
     private final UserRepository userRepository;
     private final OAuthAccountRepository oAuthAccountRepository;
     private final AuthRefreshTokenRepository refreshTokenRepository;
+    private final UserPushTokenRepository pushTokenRepository;
     private final Clock clock;
 
     public AccountDeletionService(
             UserRepository userRepository,
             OAuthAccountRepository oAuthAccountRepository,
             AuthRefreshTokenRepository refreshTokenRepository,
+            UserPushTokenRepository pushTokenRepository,
             Clock clock
     ) {
         this.userRepository = userRepository;
         this.oAuthAccountRepository = oAuthAccountRepository;
         this.refreshTokenRepository = refreshTokenRepository;
+        this.pushTokenRepository = pushTokenRepository;
         this.clock = clock;
     }
 
@@ -36,6 +40,7 @@ public class AccountDeletionService {
         Instant now = clock.instant();
 
         refreshTokenRepository.revokeAllActiveByUserId(user.getId(), now);
+        pushTokenRepository.disableAllByUserId(user.getId(), now);
         if (!user.isDeleted()) {
             oAuthAccountRepository.findAllByUserId(user.getId())
                     .forEach(account -> account.anonymizeEmail(user.getId()));
