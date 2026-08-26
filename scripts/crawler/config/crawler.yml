@@ -1,0 +1,218 @@
+version: 1
+defaultProfile: fixture
+
+base:
+  enabled: false
+  identity:
+    product: InningLogCrawler
+    version: 2.0.0
+    contact: mailto:inning-log-student-project@example.invalid
+  timezone: Asia/Seoul
+  source: fixture
+  date: null
+
+  run:
+    mode: once
+    cron: "*/5 * * * *"
+    maxGamesPerRun: 20
+    maxDetailGamesPerRun: 4
+
+  output:
+    directory: out
+    filePrefix: games
+    enabled: true
+    forceWrite: false
+    dryRun: false
+
+  request:
+    timeoutMs: 12s
+    minHostIntervalMs: 2s
+    maxRequestsPerRun: 12
+    maxAttemptsPerRun: 24
+    maxResponseBytes: 2097152
+    memoryCacheTtlMs: 1h
+    jitterRatio: 0.15
+    retry:
+      count: 2
+      baseDelayMs: 1s
+      maxDelayMs: 30s
+    circuitBreaker:
+      failureThreshold: 3
+      cooldownMs: 6h
+    headers:
+      accept: "application/json,text/plain,*/*;q=0.8"
+
+  data:
+    maxEventsPerGame: 40
+    includePlayDescriptions: false
+
+  strategy:
+    detailOnlyStates:
+      - LIVE
+      - FINISHED
+      - POSTPONED
+      - DELAYED
+      - SUSPENDED
+    polling:
+      farFutureMs: 6h
+      gameDayMs: 15m
+      nearStartMs: 1m
+      liveScheduleMs: 1m
+      liveDetailMs: 2m
+      delayedDetailMs: 5m
+      finishedOffsetsMs:
+        - 5m
+        - 30m
+        - 90m
+
+  policy:
+    enforcement: strict
+    killSwitch: true
+    failClosed: true
+    requireHttps: true
+    respectRobotsTxt: true
+    robotsCacheTtlMs: 24h
+    authorizationReviewMaxAgeMs: 7d
+    allowUndocumentedApi: false
+
+  providers:
+    fixture:
+      enabled: true
+      kind: fixture
+      documentedApi: true
+      allowedHosts: []
+      robotsUrl: null
+      termsUrl: null
+      authorization:
+        status: approved
+        evidence: local-fixture-only
+        reviewedAt: null
+        expiresAt: null
+        scopes:
+          - fixture:read
+        robotsExceptionGranted: false
+        undocumentedApiApproved: false
+      file: fixtures/games.sample.json
+      schedule: null
+      relay: null
+      record: null
+      scheduleSelectors: null
+      gameIdFromHrefRegex: null
+      keys: null
+
+    kbo:
+      enabled: false
+      kind: undocumented-api
+      documentedApi: false
+      allowedHosts:
+        - www.koreabaseball.com
+      robotsUrl: https://www.koreabaseball.com/robots.txt
+      termsUrl: https://www.koreabaseball.com/Etc/Policy.aspx
+      authorization:
+        status: unverified
+        evidence: null
+        reviewedAt: null
+        expiresAt: null
+        scopes: []
+        robotsExceptionGranted: false
+        undocumentedApiApproved: false
+      file: null
+      schedule:
+        urlTemplate: "https://www.koreabaseball.com/ws/Main.asmx/GetKboGameList?date={dateYYYYMMDD}"
+        method: GET
+        arrayPaths:
+          - games
+          - gameList
+          - result.games
+          - result.gameList
+          - data.games
+          - data.gameList
+          - data
+      relay: null
+      record: null
+      scheduleSelectors:
+        row: "table tbody tr"
+        dateTime: ".dateTime, .game-date, .time"
+        homeTeam: ".home span.team, .home-team, .teamHome"
+        awayTeam: ".away span.team, .away-team, .teamAway"
+        stadium: ".stadium, .place, .ground"
+        status: ".status, .state, .progress"
+        homeScore: ".homeScore, .home .score, .score-home"
+        awayScore: ".awayScore, .away .score, .score-away"
+        inning: ".inning, .currentInning, .inningState"
+        inningHalf: ".inningHalf, .half"
+      gameIdFromHrefRegex: "(\\d+)"
+      keys: null
+
+    naver:
+      enabled: false
+      kind: undocumented-api
+      documentedApi: false
+      allowedHosts:
+        - api-gw.sports.naver.com
+      robotsUrl: https://api-gw.sports.naver.com/robots.txt
+      termsUrl: https://policy.naver.com/rules/disclaimer.html
+      authorization:
+        status: unverified
+        evidence: null
+        reviewedAt: null
+        expiresAt: null
+        scopes: []
+        robotsExceptionGranted: false
+        undocumentedApiApproved: false
+      file: null
+      schedule:
+        urlTemplate: "https://api-gw.sports.naver.com/schedule/games?date={dateYYYYMMDD}"
+        method: GET
+        arrayPaths:
+          - games
+          - result.games
+          - data.games
+          - schedule.games
+          - result
+      relay:
+        urlTemplate: "https://api-gw.sports.naver.com/schedule/games/{gameId}/relay"
+        method: GET
+      record:
+        urlTemplate: "https://api-gw.sports.naver.com/schedule/games/{gameId}/record"
+        method: GET
+      scheduleSelectors: null
+      gameIdFromHrefRegex: null
+      keys:
+        relayPlayCandidates:
+          - plays
+          - result.plays
+          - data.plays
+          - relay.plays
+          - playByPlay
+          - result.playByPlay
+          - events
+          - result.events
+        inningArrayCandidates:
+          - innings
+          - result.innings
+          - data.innings
+          - scoreboard.innings
+
+profiles:
+  fixture:
+    enabled: true
+    source: fixture
+    policy:
+      killSwitch: false
+
+  safe:
+    enabled: false
+    source: fixture
+    output:
+      enabled: false
+    policy:
+      killSwitch: true
+
+  hybrid-locked:
+    enabled: false
+    source: hybrid
+    output:
+      enabled: true
+    policy:
+      killSwitch: true

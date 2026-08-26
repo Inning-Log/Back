@@ -1,0 +1,54 @@
+{
+  "games": [
+    {
+      "date": "$TARGET_DATE",
+      "source": { "fixture": true, "kbo": false, "naver": false },
+      "externalId": { "kbo": null, "naver": null },
+      "scheduledAt": "$TARGET_DATET18:30:00+09:00",
+      "startedAt": null,
+      "endedAt": null,
+      "homeTeam": { "name": "두산 베어스", "code": "DOO" },
+      "awayTeam": { "name": "LG 트윈스", "code": "LG" },
+      "stadium": "잠실",
+      "status": "SCHEDULED",
+      "statusText": "경기 예정",
+      "score": { "home": null, "away": null },
+      "inning": null,
+      "half": null,
+      "gameNumber": null,
+      "events": [],
+      "meta": { "fixtureId": "sample-1", "provenance": [{ "provider": "fixture" }] }
+    },
+    {
+      "date": "$TARGET_DATE",
+      "source": { "fixture": true, "kbo": false, "naver": false },
+      "externalId": { "kbo": null, "naver": null },
+      "scheduledAt": "$TARGET_DATET14:00:00+09:00",
+      "startedAt": "$TARGET_DATET14:03:00+09:00",
+      "endedAt": "$TARGET_DATET17:08:00+09:00",
+      "homeTeam": { "name": "한화 이글스", "code": "HH" },
+      "awayTeam": { "name": "KIA 타이거즈", "code": "KIA" },
+      "stadium": "대전",
+      "status": "FINISHED",
+      "statusText": "경기 종료",
+      "score": { "home": 4, "away": 2 },
+      "inning": 9,
+      "half": "BOTTOM",
+      "gameNumber": null,
+      "events": [
+        {
+          "id": "fixture-event-1",
+          "sequence": 1,
+          "inning": 1,
+          "half": "TOP",
+          "batter": "샘플 타자",
+          "pitcher": "샘플 투수",
+          "eventType": "SINGLE",
+          "description": null,
+          "runs": 0
+        }
+      ],
+      "meta": { "fixtureId": "sample-2", "provenance": [{ "provider": "fixture" }] }
+    }
+  ]
+}
