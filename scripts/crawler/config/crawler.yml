@@ -75,6 +75,11 @@ base:
     authorizationReviewMaxAgeMs: 7d
     allowUndocumentedApi: false
 
+  # Product scope as of 2026-08-26 is KBO Schedule.aspx + ScoreBoard.aspx only.
+  # The kbo ASMX and naver manifests below are retained solely so the existing
+  # policy-denial and parser regression tests remain reproducible. They are not
+  # deployment targets. Do not enable them; replace them in a reviewed change
+  # with the two page-only adapters described in TARGET_SCOPE.md.
   providers:
     fixture:
       enabled: true
@@ -209,6 +214,7 @@ profiles:
     policy:
       killSwitch: true
 
+  # Legacy denial-test profile. Never use this as an AWS deployment profile.
   hybrid-locked:
     enabled: false
     source: hybrid

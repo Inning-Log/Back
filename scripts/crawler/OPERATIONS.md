@@ -1,6 +1,6 @@
 # 크롤러 운영 안내서
 
-이 문서는 크롤러를 안전하게 설정·검증·실행하고 이상 상황에 대응하는 절차다. 정책 판단의 기준은 [POLICY.md](./POLICY.md)이며, 명령 예시는 `scripts/crawler` 디렉터리에서 실행한다.
+이 문서는 크롤러를 안전하게 설정·검증·실행하고 이상 상황에 대응하는 절차다. 제품 범위는 [TARGET_SCOPE.md](./TARGET_SCOPE.md), 정책 판단은 [POLICY.md](./POLICY.md), AWS 운영은 [AWS_FARGATE_SETUP.md](./AWS_FARGATE_SETUP.md)를 기준으로 하며 명령 예시는 `scripts/crawler` 디렉터리에서 실행한다.
 
 ## 1. 운영 모드
 
@@ -16,7 +16,7 @@ npm run crawl -- --profile fixture
 
 ### 실 네트워크 모드 — 기본 차단
 
-`hybrid-locked` 프로필은 KBO 일정 + NAVER 상세의 실 네트워크 설정을 검토하기 위한 잠긴 템플릿이고, `safe`는 fixture까지 포함해 실행·출력을 잠그는 점검용 프로필이다. 프로필 이름만으로 실행 허가가 생기지 않는다. [POLICY.md](./POLICY.md)의 서면 허가와 범위 증빙을 갖추고 정책 검사를 통과하기 전에는 사용하지 않는다.
+과거 `safe`와 `hybrid-locked`는 범용 CLI의 차단 회귀 테스트용일 뿐 운영하지 않는다. 실제 배포 대상은 `src/fargate/main.js`와 `config/fargate.yml`의 `kbo-locked`이며 KBO `Schedule.aspx`, `ScoreBoard.aspx` 두 페이지 외에는 요청할 수 없다. 이름에 `locked`가 붙은 그대로 기본 상태는 실행 불가이고, 프로필 이름만으로 실행 허가가 생기지 않는다.
 
 실행 전 매번 다음 순서로 확인한다.
 
@@ -28,15 +28,14 @@ npm run crawl -- --profile fixture
 6. 정상일 때만 스케줄 실행을 허용한다.
 
 ```bash
-npm run config:check -- --profile hybrid-locked
-npm run config:print -- --profile hybrid-locked
-npm run policy:check -- --profile hybrid-locked
-npm run crawl -- --profile hybrid-locked --dry-run
+npm run fargate:config:check -- --profile kbo-locked --print-config
+npm run fargate:policy:check -- --profile kbo-locked
+npm run fargate:plan -- --profile kbo-locked --dry-run
 ```
 
-저장소에 포함된 `hybrid-locked`는 `enabled: false`, 두 외부 provider 비활성·미승인, `policy.killSwitch: true`이므로 현재 상태의 정책 검사는 의도적으로 `BLOCK`이 된다. 위 명령은 허가 전 차단 상태를 확인하는 절차이기도 하다. 정책 검사에 실패하면 설정을 우회하거나 검사 코드를 끄지 않는다. 실제 허가 범위를 설정하거나 데이터 제공처에 서면 확인을 요청한다.
+저장소의 `kbo-locked`는 `enabled: false`, 승인 `unverified`, `killSwitch: true`이므로 현재 정책 검사는 의도적으로 `BLOCK`과 exit code `2`가 된다. dry-run은 이 상태에서도 외부 요청 `0`으로 계획과 고정 URL만 보여 준다. 정책 검사에 실패하면 설정을 우회하거나 검사 코드를 끄지 않는다.
 
-`--check-policy`는 네트워크 없는 사전 검사다. 승인 상태·증빙·scope·만료·내장 정책 카탈로그를 검증하지만 현재 robots 원문을 대신하지 않는다. 유효한 실 실행에서는 HTTP 계층이 대상 URL 요청 직전에 robots.txt를 확인하며, 가져오기·파싱 또는 허용 판정이 불가능하면 요청을 보내지 않는다.
+`--check-policy`는 네트워크 없는 사전 검사다. 승인 상태·증빙 식별자·scope·최근 검토 시각·만료와 robots 예외 기록을 검증한다. Fargate 실행의 네트워크 범위를 정확히 두 페이지로 유지하기 위해 런타임이 robots URL을 세 번째로 요청하지는 않는다. 운영자가 활성화 직전 공식 robots 원문을 다시 확인하고, 7일 이내 검토 시각과 두 경로의 서면 예외를 설정해야 한다. 해당 기록이 오래됐거나 없으면 두 페이지 요청 전 정책 게이트가 차단한다.
 
 ## 2. 시작 전 체크리스트
 
@@ -45,9 +44,10 @@ npm run crawl -- --profile hybrid-locked --dry-run
 - [ ] fixture가 실제 서비스 응답·중계 문장을 복제하지 않은 합성 데이터다.
 - [ ] 실 네트워크라면 유효한 서면 허가와 정책 스냅샷이 있다.
 - [ ] 허가의 호스트·경로·필드·요청량·보존·재배포 범위가 설정보다 넓거나 같다.
-- [ ] KBO와 NAVER의 약관·robots.txt 변경 여부를 재확인했다.
-- [ ] KBO 차단 또는 NAVER API host의 허용 규칙 부재를 덮는 `robots-disallow-override` 서면 범위가 있다.
-- [ ] 설명 원문을 켰다면 허가서와 설정에 `relay-text` scope가 모두 있다.
+- [ ] KBO 약관·robots.txt 변경 여부를 재확인했다.
+- [ ] KBO 차단에서 `Schedule.aspx`와 `ScoreBoard.aspx`를 예외로 하는 `robots-disallow-override` 서면 범위가 있다.
+- [ ] 요청 URL이 위 두 페이지뿐이고 NAVER·게임센터·문자중계·내부 endpoint가 포함되지 않는다.
+- [ ] 상세 이벤트와 설명 원문이 비활성 상태다.
 - [ ] User-Agent의 프로젝트 식별자와 연락처가 승인 내용과 일치한다.
 - [ ] kill switch가 즉시 작동하는지 담당자가 알고 있다.
 - [ ] 출력·로그에 원문 relay, 로고·영상, 쿠키·토큰이 포함되지 않는다.
@@ -59,10 +59,11 @@ npm run crawl -- --profile hybrid-locked --dry-run
 
 1. YAML의 `base`에는 모든 환경에 적용할 보수적 기본값을 둔다.
 2. `profiles.fixture`에는 네트워크를 사용하지 않는 개발·테스트 설정을 둔다.
-3. `profiles.safe`는 전체 실행 잠금, `profiles.hybrid-locked`는 승인 준비용 실 소스 토폴로지로 유지한다.
-4. 허가 후 저부하 제한과 승인 식별자는 저장소 밖 환경 파일이나 환경변수로 주입한다.
-5. 한 번의 실행에만 필요한 값은 명시적 CLI 옵션 또는 `--set`으로 덮어쓴다.
-6. 변경 뒤 `--check-config`, `--print-config`, `--check-policy`, `--dry-run` 순으로 검증한다.
+3. 범용 CLI의 `profiles.safe`, `profiles.hybrid-locked`는 과거 구조 차단 회귀용으로만 유지한다.
+4. KBO 두 페이지 전용 profile은 `config/fargate.yml`의 `kbo-locked`만 사용한다. URL은 코드 상수이므로 환경변수로 교체할 수 없다.
+5. 허가 후 저부하 제한과 승인 식별자는 저장소 밖 환경 파일이나 환경변수로 주입한다.
+6. 한 번의 실행에만 필요한 값은 명시적 CLI 옵션 또는 `--set`으로 덮어쓴다.
+7. 변경 뒤 `--check-config`, `--print-config`, `--check-policy`, `--dry-run` 순으로 검증한다.
 
 유효 설정의 우선순위는 낮은 쪽부터 다음과 같다.
 
@@ -82,12 +83,12 @@ config/crawler.yml의 base
 
 | 경기 상태 | 운영 원칙 |
 | --- | --- |
-| 먼 미래 | 일정 확인 기본 6시간 |
-| 당일 예정 | 일정 확인 기본 15분, 시작 1시간 이내에는 1분 |
-| 진행 중 | 일정 기본 1분, 상세 기본 2분. 승인된 최소 간격·일일 한도·호스트별 동시성 1을 유지 |
-| 지연·중단 | 상세 기본 5분으로 늘리고 상태 확인만 수행 |
-| 종료 | 종료 후 5분·30분·90분 시점에 최대 3회 최종 확인하고 상세 폴링 중단 |
-| 취소·연기 | 장시간 간격으로 전환하고 새 일정 확인 후 종료 |
+| 일일 계획 | 06:00 KST에 일정 페이지 1회, 경기 없으면 종료 |
+| 당일 예정 | 경기 Task 시작 시 일정 재확인, 스코어보드는 가장 이른 시작 10분 전부터 |
+| 진행 중 | 일정 페이지 기본 15분, 스코어보드 페이지 기본 2분. 각 주기마다 당일 전체 경기를 한 요청으로 처리 |
+| 지연·중단 | 일정 확인을 유지하고 스코어보드는 기본 5분으로 늘림 |
+| 종료 | 종료 후 5분·30분·90분 시점에 최대 3회 최종 확인하고 종료 |
+| 취소·연기 | 모든 경기가 취소·연기되면 스코어보드 요청을 중단하고 Task 종료 |
 
 위 값은 현재 스케줄러의 **요청 가능 시각** 기본값이다. 실제 허가서의 최소 간격이 더 길면 반드시 허가서 값을 따른다. 실제 폴링 간격은 cron 기동 간격보다 짧아질 수 없으므로, 기본 cron `*/5 * * * *`에서는 1분 eligibility도 최대 5분마다만 평가된다. 반대로 cron이 더 자주 실행되더라도 스케줄러가 경기별 다음 허용 시각을 확인해 불필요한 요청을 생략한다.
 

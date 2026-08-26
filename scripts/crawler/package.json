@@ -2,8 +2,8 @@
   "name": "inning-log-crawler",
   "private": true,
   "type": "module",
-  "version": "2.0.0",
-  "description": "Policy-gated, low-impact baseball game data collector",
+  "version": "3.0.0",
+  "description": "Policy-gated KBO page collector with a bounded AWS Fargate runtime",
   "engines": {
     "node": ">=22"
   },
@@ -13,9 +13,17 @@
     "config:check": "node src/crawler.js --check-config",
     "config:print": "node src/crawler.js --print-config",
     "policy:check": "node src/crawler.js --check-policy",
+    "fargate:plan": "node src/fargate/main.js --plan-day",
+    "fargate:window": "node src/fargate/main.js --run-game-window",
+    "fargate:config:check": "node src/fargate/main.js --check-config",
+    "fargate:policy:check": "node src/fargate/main.js --check-policy",
     "test": "node --test"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1118.0",
+    "@aws-sdk/client-scheduler": "^3.1118.0",
+    "@aws-sdk/client-sqs": "^3.1118.0",
+    "@aws-sdk/lib-dynamodb": "^3.1118.0",
     "axios": "^1.7.4",
     "cheerio": "^1.0.0",
     "node-cron": "^4.6.0",

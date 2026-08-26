@@ -1,0 +1,84 @@
+version: 1
+defaultProfile: fixture
+
+base:
+  enabled: false
+  provider: fixture
+  timezone: Asia/Seoul
+
+  identity:
+    product: InningLogCrawler
+    version: 3.0.0
+    contact: mailto:inning-log-student-project@example.invalid
+
+  policy:
+    killSwitch: true
+    authorizationStatus: unverified
+    authorizationEvidence: null
+    authorizationReviewedAt: null
+    authorizationExpiresAt: null
+    authorizationScopes: []
+    robotsExceptionGranted: false
+    authorizationReviewMaxAgeMs: 7d
+
+  endpoints:
+    schedule: https://www.koreabaseball.com/Schedule/Schedule.aspx
+    scoreboard: https://www.koreabaseball.com/Schedule/ScoreBoard.aspx
+
+  fixture:
+    scheduleFile: fixtures/kbo/schedule.html
+    scoreboardFile: fixtures/kbo/scoreboard.html
+
+  request:
+    timeoutMs: 12s
+    minHostIntervalMs: 2s
+    maxResponseBytes: 2097152
+    retryCount: 1
+    retryBaseDelayMs: 1s
+    maxLogicalRequestsPerHour: 40
+    maxAttemptsPerHour: 60
+
+  polling:
+    planLeadMs: 60m
+    scoreboardLeadMs: 10m
+    scheduleRefreshMs: 15m
+    scoreboardRefreshMs: 2m
+    delayedRefreshMs: 5m
+    leaseRenewMs: 5m
+    finalCheckOffsetsMs:
+      - 5m
+      - 30m
+      - 90m
+    hardTimeoutMs: 12h
+
+  aws:
+    region: ap-northeast-2
+    stateTable: null
+    snapshotQueueUrl: null
+    schedulerGroup: inning-log-crawler
+    schedulerRoleArn: null
+    schedulerDlqArn: null
+    ecs:
+      clusterArn: null
+      taskDefinitionArn: null
+      containerName: crawler
+      subnetIds: []
+      securityGroupIds: []
+      assignPublicIp: true
+
+profiles:
+  fixture:
+    enabled: true
+    provider: fixture
+    policy:
+      killSwitch: false
+
+  # Deployment profile. It is intentionally impossible to run until the
+  # reviewed authorization fields and kill switch are changed explicitly.
+  kbo-locked:
+    enabled: false
+    provider: kbo
+    policy:
+      killSwitch: true
+      authorizationStatus: unverified
+      authorizationScopes: []
