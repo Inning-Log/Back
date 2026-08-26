@@ -196,12 +196,15 @@ docker run --rm inning-log/crawler:local-check --plan-day --profile fixture --dr
 
 1. AWS 콘솔 상단의 `>_` 모양 **CloudShell**을 연다.
 2. 아래 코드 블록 안의 명령만 입력한다. 프롬프트에 표시되는 `$`, `crawler $`, 줄 번호와 Markdown의 백틱은 입력하지 않는다.
-3. 이미 clone한 `Back` 저장소로 이동하고 최신 commit을 받는다.
+3. 이미 clone한 `Back` 저장소로 이동하고, Dockerfile이 push된 브랜치를 명시적으로 받는다.
 
 ```bash
 cd ~/Back
-git pull --ff-only
 git status --short
+git fetch origin
+git switch feat/fcm-notifications
+git pull --ff-only origin feat/fcm-notifications
+git branch --show-current
 git log -1 --oneline
 test -f scripts/crawler/Dockerfile && echo "OK: crawler Dockerfile exists"
 cd scripts/crawler
@@ -209,11 +212,12 @@ cd scripts/crawler
 
 다음을 모두 만족해야 5.5절로 간다.
 
-- `git pull`이 새 commit을 받았거나 `Already up to date.`라고 표시한다.
+- `git branch --show-current`가 `feat/fcm-notifications`를 표시한다.
+- `git log -1 --oneline`이 최소한 Dockerfile 추가 commit `e807e4c`를 포함하거나 그보다 나중 commit을 표시한다.
 - `git status --short`에 CloudShell에서 만든 임의 변경이 나오지 않는다.
 - 마지막 검사에서 `OK: crawler Dockerfile exists`가 출력된다.
 
-`Already up to date.`인데 `OK`가 출력되지 않으면 Dockerfile이 아직 GitHub에 push되지 않은 것이다. 이때는 build를 반복하지 말고 코드 commit/push부터 완료한다. `git pull`이 충돌하면 `reset --hard`로 지우지 말고 작업을 멈추고 CloudShell 변경 내용을 먼저 확인한다.
+`git switch`나 `git pull`이 충돌하면 `reset --hard`로 지우지 말고 작업을 멈추고 CloudShell 변경 내용을 먼저 확인한다. `OK`가 출력되지 않으면 build나 tag/push를 시도하지 말고 위 브랜치와 commit 출력부터 다시 확인한다.
 
 ### 5.5 ECR 변수 설정과 로그인
 
