@@ -52,7 +52,16 @@ test("SQS publisher emits one idempotent message for unchanged content", async (
   })).changed, false);
   assert.equal(sent.length, 1);
   const body = JSON.parse(sent[0].MessageBody);
+  assert.equal(body.type, "KBO_GAME_SNAPSHOT");
   assert.match(body.idempotencyKey, /^2026-08-26:game-window:[a-f0-9]{64}$/);
+
+  await publisher.publishIfChanged({
+    ...base,
+    mode: "schedule-month",
+    date: "2026-08-01",
+    month: "2026-08",
+  });
+  assert.equal(JSON.parse(sent[1].MessageBody).type, "KBO_SCHEDULE_MONTH_SNAPSHOT");
 });
 
 test("EventBridge manager creates a one-time ECS task with safe fixed parameters", async () => {

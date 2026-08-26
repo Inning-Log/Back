@@ -355,9 +355,9 @@ AWS 콘솔에서도 교차 확인한다.
 7. DLQ로 `inning-log-game-snapshots-dlq`를 선택한다.
 8. Maximum receives는 `5`로 입력한다.
 9. **Create queue**를 누른다.
-10. 생성 후 Details에서 Queue URL과 ARN을 기록한다.
+10. 생성 후 Queue URL과 ARN은 7.4절에서 세 queue를 한꺼번에 확인하고 기록한다.
 
-Standard queue는 메시지가 중복 전달될 수 있으므로 백엔드는 `source + externalGameId + contentFingerprint`로 멱등 upsert한다.
+> **지금 AWS 콘솔에서 할 작업은 아님:** Standard queue는 메시지가 중복 전달될 수 있으므로 결과를 소비하는 백엔드는 나중에 `source + externalGameId + contentFingerprint`를 고유 처리 키로 사용해 멱등 upsert해야 한다. 이것은 SQS 생성 화면의 옵션이 아니라 백엔드 구현 요구사항이다.
 
 ### 7.3 Scheduler DLQ
 
@@ -367,11 +367,109 @@ Standard queue는 메시지가 중복 전달될 수 있으므로 백엔드는 `s
 - Encryption: 활성
 - 애플리케이션 메시지를 보내는 queue가 아니라 Scheduler가 ECS Task 호출에 실패했을 때 사용하는 queue다.
 
+문서 순서대로 결과 DLQ와 결과 queue 두 개를 만들었다면, 현재 다음 행동은 이 세 번째 queue를 만드는 것이다. 결과 queue처럼 별도의 DLQ를 다시 연결하지 않는다.
+
+### 7.4 Queue URL과 ARN 확인·기록
+
+총 세 개의 queue가 있어야 한다.
+
+| Queue name | 용도 | 반드시 기록할 값 |
+| --- | --- | --- |
+| `inning-log-game-snapshots` | 크롤러 결과 전달 | Queue URL, ARN |
+| `inning-log-game-snapshots-dlq` | 결과 처리 반복 실패 보관 | ARN |
+| `inning-log-crawler-scheduler-dlq` | Scheduler의 ECS 호출 실패 보관 | ARN |
+
+콘솔에서는 다음 순서로 찾는다.
+
+1. `SQS → Queues` 목록으로 이동한다.
+2. 왼쪽 체크박스만 선택하지 말고 **queue 이름 링크 자체**를 누른다.
+3. 열린 queue 상세 화면의 위쪽 요약 영역에서 **URL**과 **ARN**을 찾는다. 화면 폭에 따라 `Details`가 탭이 아니라 접힌 요약 영역으로 보일 수 있다.
+4. 각 값 오른쪽의 복사 아이콘으로 기록한다.
+5. 뒤로 가서 나머지 queue도 같은 방식으로 확인한다.
+
+콘솔에서 항목을 찾기 어렵다면 CloudShell에서 다음 블록으로 세 queue를 한 번에 조회한다. 이 방법으로 나온 값이 공식 API가 반환한 실제 식별자다.
+
+```bash
+SQS_REGION=ap-northeast-2
+SNAPSHOT_QUEUE_NAME=inning-log-game-snapshots
+SNAPSHOT_DLQ_NAME=inning-log-game-snapshots-dlq
+SCHEDULER_DLQ_NAME=inning-log-crawler-scheduler-dlq
+
+SNAPSHOT_QUEUE_URL=$(aws sqs get-queue-url --region "$SQS_REGION" --queue-name "$SNAPSHOT_QUEUE_NAME" --query QueueUrl --output text)
+SNAPSHOT_DLQ_URL=$(aws sqs get-queue-url --region "$SQS_REGION" --queue-name "$SNAPSHOT_DLQ_NAME" --query QueueUrl --output text)
+SCHEDULER_DLQ_URL=$(aws sqs get-queue-url --region "$SQS_REGION" --queue-name "$SCHEDULER_DLQ_NAME" --query QueueUrl --output text)
+
+SNAPSHOT_QUEUE_ARN=$(aws sqs get-queue-attributes --region "$SQS_REGION" --queue-url "$SNAPSHOT_QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
+SNAPSHOT_DLQ_ARN=$(aws sqs get-queue-attributes --region "$SQS_REGION" --queue-url "$SNAPSHOT_DLQ_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
+SCHEDULER_DLQ_ARN=$(aws sqs get-queue-attributes --region "$SQS_REGION" --queue-url "$SCHEDULER_DLQ_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
+
+printf 'Snapshot Queue URL: %s\nSnapshot Queue ARN: %s\nSnapshot DLQ ARN: %s\nScheduler DLQ ARN: %s\n' \
+  "$SNAPSHOT_QUEUE_URL" \
+  "$SNAPSHOT_QUEUE_ARN" \
+  "$SNAPSHOT_DLQ_ARN" \
+  "$SCHEDULER_DLQ_ARN"
+```
+
+마지막으로 결과 queue에 DLQ가 정확히 연결됐는지 확인한다.
+
+```bash
+aws sqs get-queue-attributes \
+  --region "$SQS_REGION" \
+  --queue-url "$SNAPSHOT_QUEUE_URL" \
+  --attribute-names RedrivePolicy \
+  --query 'Attributes.RedrivePolicy' \
+  --output text
+```
+
+정상이면 한 줄 JSON 안에 다음 두 값이 표시된다.
+
+```text
+"deadLetterTargetArn":"arn:aws:sqs:ap-northeast-2:<account-id>:inning-log-game-snapshots-dlq"
+"maxReceiveCount":"5"
+```
+
+`None`, `null` 또는 빈 출력이면 결과 queue에 DLQ가 연결되지 않은 것이다. `SQS → inning-log-game-snapshots → Edit → Dead-letter queue`에서 `inning-log-game-snapshots-dlq`, Maximum receives `5`를 설정하고 저장한다.
+
+출력값은 비밀번호가 아니지만 계정별 리소스 식별자이므로 임의로 줄이거나 이름만 적지 않는다. 이 저장소에서는 Git과 Docker에서 제외되는 `scripts/crawler/.env.aws.local`에 `DEPLOY_*` 이름으로 기록한다. 공개 저장소 문서나 추적되는 설정 파일에는 실제 계정 ID가 포함된 값을 넣지 않는다. 이 파일은 배포 기록 전용이며 크롤러 runtime env 파일로 로드하지 않는다.
+
+- `SNAPSHOT_QUEUE_URL`은 12절 Task definition의 `CRAWLER_SNAPSHOT_QUEUE_URL`에 사용한다.
+- `SNAPSHOT_QUEUE_ARN`은 9.2절 크롤러 task role의 `sqs:SendMessage` Resource에 사용한다.
+- `SCHEDULER_DLQ_ARN`은 9.3절과 14절 EventBridge Scheduler 설정에 사용한다.
+- `SNAPSHOT_DLQ_ARN`은 결과 queue의 Redrive policy가 올바른지 확인할 때 사용한다.
+
+다음 체크를 모두 마치면 8절 DynamoDB로 진행한다.
+
+- [ ] 세 queue가 모두 존재함
+- [ ] `inning-log-game-snapshots`에 결과 DLQ와 Maximum receives `5`가 연결됨
+- [ ] Snapshot Queue URL 기록
+- [ ] Snapshot Queue ARN 기록
+- [ ] Snapshot DLQ ARN 기록
+- [ ] Scheduler DLQ ARN 기록
+
 AWS 콘솔의 기본 생성 흐름은 [SQS Standard queue 생성](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/creating-sqs-standard-queues.html), DLQ 동작은 [SQS DLQ 설명](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html)을 참고한다.
 
 ## 8. 4단계 — DynamoDB 상태 테이블 생성
 
-Fargate 로컬 디스크는 작업 종료 후 다음 실행에서 상태 저장소로 신뢰할 수 없다. 일정, lease, 회로 차단, 조건부 요청 validator와 지속 요청량을 DynamoDB에 둔다.
+Fargate Task의 메모리와 로컬 파일은 Task가 끝나면 다음 실행에서 이어서 사용할 수 없다. 이 프로젝트는 여러 실행이 공유해야 하는 잠금, 최근 수집 상태, 중복 발행 방지, 누적 요청량과 차단 상태를 DynamoDB에 둔다.
+
+| Partition key 예시 | 용도 |
+| --- | --- |
+| `LEASE#PLAN#2026-08-26` | 같은 날짜의 계획 Task가 중복 실행되지 않도록 분산 잠금 |
+| `LEASE#WINDOW#2026-08-26` | 같은 경기일의 실시간 수집 Task가 동시에 두 개 돌지 않도록 분산 잠금 |
+| `DAY#2026-08-26` | 당일 경기 일정과 계산된 실행 시각 |
+| `SCHEDULE#MONTH#2026-08` | 일정 페이지 한 번에서 정규화한 표시 월 전체 일정·결과 |
+| `LATEST#2026-08-26` | 가장 최근에 정규화한 경기 snapshot |
+| `PUBLISHED#2026-08-26#game-window` | 같은 내용의 SQS 메시지를 반복 발행하지 않기 위한 fingerprint |
+| `QUOTA#KBO#LOGICAL#2026082609` | Task 재시작을 넘어 유지되는 시간당 논리 요청 수 |
+| `QUOTA#KBO#ATTEMPT#2026082609` | retry를 포함한 실제 HTTP 시도 수 |
+| `CIRCUIT#KBO` | 403·429·CAPTCHA 등으로 수집을 중단한 상태와 재개 가능 시각 |
+
+구분은 다음과 같다.
+
+- Docker build와 `fixture --dry-run` 검증에는 DynamoDB가 필요하지 않다. 메모리 상태 저장소만 사용한다.
+- 실제 KBO `plan-day`와 `run-game-window`를 Fargate에서 실행할 때는 현재 구현상 필수다.
+- DynamoDB라는 제품 자체가 이론적으로 유일한 방법은 아니지만, 다른 저장소로 바꾸려면 동일한 조건부 잠금·원자적 quota·TTL·공유 상태 기능과 코드 adapter를 별도로 구현해야 한다.
+- 현재 구성에서는 별도 서버 없이 요청한 만큼만 사용하는 DynamoDB On-demand를 기준으로 하므로 DynamoDB를 그대로 사용한다.
 
 1. 상단 검색창에서 `DynamoDB`를 연다.
 2. 왼쪽 메뉴에서 **Tables**를 선택한다.
@@ -385,17 +483,23 @@ Fargate 로컬 디스크는 작업 종료 후 다음 실행에서 상태 저장�
 10. **Create table**을 누른다.
 11. Status가 `ACTIVE`가 될 때까지 기다린다.
 12. 테이블 상세의 **Additional settings** 또는 **Time to Live (TTL)**에서 TTL을 켠다.
-13. TTL attribute name은 `expiresAtEpoch`로 입력한다.
+13. TTL attribute name은 코드가 실제로 기록하는 `expiresAt`으로 정확히 입력한다. `expiresAtEpoch`가 아니다.
 
-항목 키 예시는 다음과 같다.
+다음은 크롤러가 실행되면서 DynamoDB API로 **자동 생성하는 항목의 `pk` 예시**다. 테이블 생성 직후 콘솔에서 수동으로 입력하거나 미리 만들지 않는다. 날짜와 시간 부분도 실행 시점에 코드가 계산한다.
 
 ```text
-STATE#2026-08-26
 LEASE#PLAN#2026-08-26
-LEASE#RUNNER#2026-08-26
-RATE#KBO#2026-08-26T18
+LEASE#WINDOW#2026-08-26
+DAY#2026-08-26
+SCHEDULE#MONTH#2026-08
+LATEST#2026-08-26
+PUBLISHED#2026-08-26#game-window
+QUOTA#KBO#LOGICAL#2026082609
+QUOTA#KBO#ATTEMPT#2026082609
 CIRCUIT#KBO
 ```
+
+테이블 생성 직후 Items가 `0`개인 것이 정상이다. fixture dry-run은 DynamoDB를 사용하지 않으므로 항목을 만들지 않는다. 이후 AWS 설정을 연결한 실제 `plan-day` 또는 `run-game-window` Task가 실행되면 필요한 항목만 생성된다.
 
 lease는 DynamoDB conditional write로 한 작업만 획득해야 한다. 단순 `PutItem` 후 확인하는 방식은 중복 실행을 막지 못한다. 공식 콘솔 생성 순서는 [DynamoDB table 생성](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/getting-started-step-1.html)을 참고한다.
 
@@ -429,6 +533,8 @@ lease는 DynamoDB conditional write로 한 작업만 획득해야 한다. 단순
 4. Role name에 `inning-log-crawler-task`를 입력하고 생성한다.
 5. 생성한 role을 열고 **Add permissions → Create inline policy**를 누른다.
 6. JSON 탭에서 실제 계정 ID와 리전으로 치환한 최소 정책을 입력한다.
+
+> 아래 `ACCOUNT_ID`는 AWS에 그대로 입력하는 값이 아니다. JSON 전체에서 총 **4곳**을 찾아 현재 계정의 12자리 숫자로 모두 바꾼다. 밑줄, `< >`, 따옴표 밖의 설명 문자는 추가하지 않는다. 계정 ID를 모르면 CloudShell에서 `aws sts get-caller-identity --query Account --output text`로 확인한다.
 
 ```json
 {
@@ -478,20 +584,109 @@ lease는 DynamoDB conditional write로 한 작업만 획득해야 한다. 단순
 }
 ```
 
+붙여 넣은 뒤 JSON 검색으로 `ACCOUNT_ID`가 `0건` 남았는지 확인한다. 한 곳이라도 남으면 IAM 정책 검증이 실패한다.
+
 Policy name은 `inning-log-crawler-runtime`으로 입력한다. `Resource: "*"`로 넓히지 않는다.
 
 ### 9.3 EventBridge Scheduler execution role
 
-이 역할은 Scheduler가 지정된 ECS Task를 시작할 때 사용한다.
+이 역할은 EventBridge Scheduler가 지정된 ECS Task를 시작하고, 최종 호출 실패를 Scheduler DLQ에 기록할 때 사용한다. 14절 schedule 생성 화면의 자동 역할 생성에 맡기지 않고 지금 정확한 이름과 최소 권한으로 만든다. IAM role은 생성 후 이름을 바꿀 수 없고, 9.2 application role의 `iam:PassRole`이 이 정확한 role ARN을 참조하기 때문이다.
 
-가장 안전한 첫 생성 방법은 13절에서 첫 schedule을 만들 때 **Create new role for this schedule**을 선택하는 것이다. 생성된 역할을 확인한 다음 이름과 권한을 정리한다. 수동으로 먼저 만들 경우 trust principal은 `scheduler.amazonaws.com`이고 권한은 다음으로 제한한다.
+#### 9.3.1 Role과 trust policy 생성
 
-- `ecs:RunTask`: `inning-log-crawler` task definition family만
-- `iam:PassRole`: 위의 task execution role과 application task role만
-- `sqs:SendMessage`: `inning-log-crawler-scheduler-dlq`만
-- 가능하면 `ecs:cluster` 조건으로 `inning-log-crawler` cluster만
+1. IAM **Roles → Create role**을 누른다.
+2. Trusted entity type에서 **Custom trust policy**를 선택한다.
+3. 아래 JSON의 `ACCOUNT_ID` 두 곳을 현재 12자리 계정 ID로 바꿔 붙여 넣는다.
 
-Role name은 `inning-log-crawler-scheduler`로 통일한다. AdministratorAccess, AmazonECS_FullAccess를 붙이지 않는다.
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "scheduler.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceAccount": "ACCOUNT_ID",
+          "aws:SourceArn": "arn:aws:scheduler:ap-northeast-2:ACCOUNT_ID:schedule-group/inning-log-crawler"
+        }
+      }
+    }
+  ]
+}
+```
+
+4. **Next**를 누른다.
+5. 권한 선택 화면에서는 광범위한 관리형 정책을 추가하지 않고 **Next**를 누른다.
+6. Role name에 `inning-log-crawler-scheduler`를 정확히 입력한다.
+7. **Create role**을 누른다.
+
+`aws:SourceArn`은 개별 schedule ARN이 아니라 14절에서 만들 schedule group ARN이어야 한다. schedule group이 아직 없어도 이 trust policy와 role은 먼저 생성할 수 있다.
+
+#### 9.3.2 최소 실행 권한 추가
+
+1. 생성한 `inning-log-crawler-scheduler` role을 연다.
+2. **Add permissions → Create inline policy → JSON**을 선택한다.
+3. 아래 JSON의 `ACCOUNT_ID` 다섯 곳을 모두 현재 12자리 계정 ID로 바꾼다.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RunOnlyCrawlerTask",
+      "Effect": "Allow",
+      "Action": "ecs:RunTask",
+      "Resource": "arn:aws:ecs:ap-northeast-2:ACCOUNT_ID:task-definition/inning-log-crawler:*",
+      "Condition": {
+        "ArnEquals": {
+          "ecs:cluster": "arn:aws:ecs:ap-northeast-2:ACCOUNT_ID:cluster/inning-log-crawler"
+        }
+      }
+    },
+    {
+      "Sid": "PassOnlyCrawlerTaskRoles",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::ACCOUNT_ID:role/inning-log-crawler-task-execution",
+        "arn:aws:iam::ACCOUNT_ID:role/inning-log-crawler-task"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "WriteOnlySchedulerDlq",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "arn:aws:sqs:ap-northeast-2:ACCOUNT_ID:inning-log-crawler-scheduler-dlq"
+    }
+  ]
+}
+```
+
+4. JSON 검색으로 `ACCOUNT_ID`가 `0건` 남았는지 확인한다.
+5. **Next**를 누르고 Policy name은 `inning-log-crawler-scheduler-execution`으로 입력한다.
+6. 정책을 생성한다.
+
+> 위 설명의 `ACCOUNT_ID` 개수는 JSON 문자열 내 등장 횟수를 의미한다. 콘솔 편집 과정에서 정책을 수정했다면 개수를 세기보다 `ACCOUNT_ID`가 하나도 남지 않았는지를 최종 기준으로 삼는다.
+
+#### 9.3.3 완료 확인
+
+- [ ] Role name이 `inning-log-crawler-scheduler`와 정확히 일치함
+- [ ] Trusted service가 `scheduler.amazonaws.com`임
+- [ ] Trust policy의 SourceAccount가 현재 계정임
+- [ ] Trust policy의 SourceArn이 `schedule-group/inning-log-crawler`임
+- [ ] Inline policy가 crawler task definition, 두 task role, Scheduler DLQ만 허용함
+- [ ] AdministratorAccess와 AmazonECS_FullAccess가 없음
+
+14절에서 schedule을 만들 때는 **Create new role for this schedule**이 아니라 **Use existing role**을 선택하고 `inning-log-crawler-scheduler`를 지정한다. AWS는 콘솔에서도 Scheduler 실행 role을 자동 생성할 수 있지만, 이 프로젝트는 코드에서 같은 role ARN으로 일회성 schedule도 만들기 때문에 고정 이름의 기존 role 하나를 사용한다.
 
 ## 10. 6단계 — VPC와 Security Group
 
@@ -501,8 +696,20 @@ Role name은 `inning-log-crawler-scheduler`로 통일한다. AdministratorAccess
 
 1. 상단 검색창에서 `VPC`를 연다.
 2. **Your VPCs**에서 사용할 VPC를 선택한다. 초기에는 default VPC를 사용할 수 있다.
-3. **Subnets**에서 서로 다른 가용 영역의 public subnet 두 개를 기록한다.
-4. 각 subnet의 route table에 `0.0.0.0/0 → Internet Gateway`가 있는지 확인한다.
+3. 선택한 VPC의 **Resource map**을 연다. 리소스 맵에서 초록색 subnet은 public, 파란색 subnet은 private 표시다.
+4. **Subnets**에서 서로 다른 가용 영역의 초록색 public subnet 두 개를 기록한다. 이름에 `private`가 들어간 기존 subnet은 색상과 실제 route가 public으로 보여도 이 프로젝트에서는 선택하거나 수정하지 않는다.
+5. 두 subnet이 연결된 route table을 열어 Routes에서 `0.0.0.0/0 → igw-...`가 `Active`인지 확인한다. subnet 이름이 아니라 이 route가 public 여부의 최종 기준이다.
+6. 선택한 VPC ID, subnet ID 두 개, route table ID를 Git에서 제외되는 `.env.aws.local`에 기록한다.
+
+현재 계정에서 선택한 초기값은 다음과 같다. 실제 ID는 공개 문서에 고정하지 않고 로컬 배포 기록에서 관리한다.
+
+```text
+default VPC 1개
+서로 다른 가용 영역의 기본 public subnet 2개
+기존 inning-log-private-a subnet은 선택 대상에서 제외
+```
+
+Fargate 실행 시에는 이 두 subnet을 지정하고 **Assign public IP = Enabled**로 설정한다.
 
 ### 10.2 전용 Security Group 생성
 
@@ -562,37 +769,54 @@ ECS Service는 생성하지 않는다. Service는 원하는 task 수를 계속 �
 ### Container 정의
 
 1. Container name은 `crawler`다.
-2. Image URI에는 ECR의 불변 Git SHA 태그 URI를 입력한다.
+2. Image URI에는 5.7절에서 검증한 ECR의 불변 Git SHA 태그 **전체 URI**를 입력한다. `latest`를 선택하지 않는다.
 3. Essential container는 **Yes**로 둔다.
-4. Port mapping은 추가하지 않는다.
-5. Command는 비워 둔다. 이미지의 안전한 기본 명령 `--plan-day --profile fixture --dry-run`이 실행된다. 계획·경기 모드는 Scheduler가 container override로 **인수만** 지정한다.
-6. Environment variables에는 비밀이 아닌 다음 값만 둔다.
+4. **Private registry authentication**은 끈 상태로 둔다. 같은 계정의 ECR 인증은 Task execution role이 담당한다.
+5. 화면에 기본 Port mapping `80/TCP/HTTP` 행이 생겼다면 오른쪽 **Remove/제거**를 눌러 삭제한다. `Port mappings`가 `0개`인 상태가 정상이다. 이 크롤러는 요청을 받는 웹 서버가 아니다.
+6. Entry point와 Command는 모두 비워 둔다. 이미지의 안전한 기본 명령 `--plan-day --profile fixture --dry-run`이 실행된다. 계획·경기 모드는 Scheduler가 container override로 **인수만** 지정한다.
+7. 첫 Task definition revision은 fixture smoke test 전용이다. **Environment variables → Add environment variable**을 세 번 눌러 행 세 개를 만든다. AWS 콘솔은 여러 줄 `KEY=VALUE`를 한 번에 붙이는 입력창이 아니므로 각 행의 Key와 Value 칸에 아래 값을 하나씩 복사한다.
 
-| Key | 초기 값 |
-| --- | --- |
-| `AWS_REGION` | `ap-northeast-2` |
-| `TZ` | `Asia/Seoul` |
-| `CRAWLER_PROFILE` | `fixture` |
-| `CRAWLER_KILL_SWITCH` | `true` |
-| `CRAWLER_STATE_TABLE` | `inning-log-crawler-state` |
-| `CRAWLER_SNAPSHOT_QUEUE_URL` | 7절에서 기록한 Queue URL |
-| `CRAWLER_SCHEDULER_GROUP` | `inning-log-crawler` |
-| `CRAWLER_SCHEDULER_ROLE_ARN` | 9.3절 role ARN |
-| `CRAWLER_SCHEDULER_DLQ_ARN` | 7.3절 Scheduler DLQ ARN |
-| `CRAWLER_ECS_CLUSTER_ARN` | 이 cluster ARN |
-| `CRAWLER_ECS_TASK_DEFINITION` | `inning-log-crawler` 또는 배포 시 전달한 고정 revision ARN |
-| `CRAWLER_ECS_CONTAINER_NAME` | `crawler` |
-| `CRAWLER_ECS_SUBNET_IDS` | 선택한 public subnet ID를 쉼표로 연결 |
-| `CRAWLER_ECS_SECURITY_GROUP_IDS` | crawler security group ID |
-| `CRAWLER_ECS_ASSIGN_PUBLIC_IP` | `true` |
+첫 번째 행:
 
-위 키는 현재 Fargate 설정 로더가 모두 인식한다. 이름이 다른 `CRAWLER_*` 키는 오타로 보고 안전하게 거부한다. 초기 fixture dry-run은 AWS 값을 사용하지 않지만 같은 Task definition을 실 profile로 전환할 때 누락되지 않도록 미리 입력한다. 허가 관련 `CRAWLER_AUTH_*` 값은 16절의 실 데이터 전환 전까지 넣지 않는다.
+```text
+Value type: Value
+Key: AWS_REGION
+Value: ap-northeast-2
+```
 
-7. Logging은 **Use log collection** 또는 `awslogs`를 선택한다.
-8. Log group은 `/inning-log/crawler`, Region은 `ap-northeast-2`, stream prefix는 `ecs`로 지정한다.
-9. Read-only root filesystem 옵션이 있으면 활성화한다. 임시 파일이 필요하면 `/tmp`만 사용하도록 코드를 확인한다.
-10. Health check와 volume은 1차 구성에서 추가하지 않는다.
-11. **Create**를 누른다.
+두 번째 행:
+
+```text
+Value type: Value
+Key: TZ
+Value: Asia/Seoul
+```
+
+세 번째 행:
+
+```text
+Value type: Value
+Key: CRAWLER_PROFILE
+Value: fixture
+```
+
+입력을 마치면 Environment variables 영역에 다음 세 쌍만 보여야 한다.
+
+```text
+AWS_REGION        ap-northeast-2
+TZ                Asia/Seoul
+CRAWLER_PROFILE   fixture
+```
+
+`CRAWLER_KILL_SWITCH`는 초기 fixture revision에 넣지 않는다. `fixture` profile은 설정 파일에서 안전하게 허용되고, `kbo-locked` profile은 설정 파일에서 이미 kill switch가 켜져 있다. 여기에 `true`를 넣으면 fixture 정책 검사 결과까지 차단 상태로 바뀐다.
+
+DynamoDB, SQS, Scheduler, subnet과 security group 관련 `CRAWLER_*` 값도 지금은 넣지 않는다. fixture dry-run은 AWS API나 외부 네트워크를 사용하지 않는다. 실제 KBO 전환 시에는 16절에서 별도 Task definition revision을 만들고 검토된 전체 값을 추가한다.
+
+8. Logging은 **Use log collection** 또는 `awslogs`를 선택한다.
+9. Log group은 `/inning-log/crawler`, Region은 `ap-northeast-2`, stream prefix는 `ecs`로 지정한다.
+10. Read-only root filesystem 옵션이 있으면 활성화한다. 임시 파일이 필요하면 `/tmp`만 사용하도록 코드를 확인한다.
+11. Health check와 volume은 1차 구성에서 추가하지 않는다.
+12. **Create**를 누른다.
 
 Fargate task definition은 CPU·메모리, `awsvpc`, 실행 역할과 task role을 분리해 지정한다. [.25 vCPU는 512MiB·1GB·2GB 조합을 지원](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html)하며, 로그는 `awslogs`로 CloudWatch에 전달할 수 있다.
 
@@ -629,9 +853,52 @@ fixture
 
 실패하면 schedule을 만들기 전에 17절을 따라 원인을 해결한다.
 
+### 13.1 실제 AWS 저장 경로를 fixture로 끝까지 검증
+
+위 `fixture --dry-run`은 컨테이너 시작만 검증하며 DynamoDB, SQS와 일회성 Scheduler에는 쓰지 않는다. 새 코드와 이미지를 배포한 뒤에는 `fixture-aws` 프로필로 **외부 요청 0건 + 실제 AWS 쓰기**를 한 번 검증한다. 이 프로필은 번들된 `fixtures/kbo/*.html`만 읽는다.
+
+새 Task definition revision에는 기존 세 환경변수와 함께 아래 AWS 연결값을 모두 `Value` 유형으로 추가한다. `valueFrom`을 선택하지 않는다.
+
+```text
+CRAWLER_PROFILE=fixture-aws
+CRAWLER_STATE_TABLE=inning-log-crawler-state
+CRAWLER_SNAPSHOT_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/590385682315/inning-log-game-snapshots
+CRAWLER_SCHEDULER_GROUP=inning-log-crawler
+CRAWLER_SCHEDULER_ROLE_ARN=arn:aws:iam::590385682315:role/inning-log-crawler-scheduler
+CRAWLER_SCHEDULER_DLQ_ARN=arn:aws:sqs:ap-northeast-2:590385682315:inning-log-crawler-scheduler-dlq
+CRAWLER_ECS_CLUSTER_ARN=arn:aws:ecs:ap-northeast-2:590385682315:cluster/inning-log-crawler
+CRAWLER_ECS_TASK_DEFINITION=arn:aws:ecs:ap-northeast-2:590385682315:task-definition/inning-log-crawler
+CRAWLER_ECS_CONTAINER_NAME=crawler
+CRAWLER_ECS_SUBNET_IDS=subnet-07c58bcb726562065,subnet-0c5afbe9c4bc54ec5
+CRAWLER_ECS_SECURITY_GROUP_IDS=sg-07145829faeca82c0
+CRAWLER_ECS_ASSIGN_PUBLIC_IP=true
+```
+
+수동 실행의 container override에는 다음 인수만 넣는다. 날짜는 번들 fixture에 존재하는 값이며 실제 KBO 요청 날짜가 아니다.
+
+```text
+--plan-day
+--profile
+fixture-aws
+--date
+2026-08-27
+```
+
+성공 조건은 다음과 같다.
+
+- ECS Task가 exit code `0`으로 종료한다.
+- 로그에 `profile:"fixture-aws"`, `month:"2026-08"`, `monthGameCount:4`, `requestMetrics.logicalRequests:0`이 나온다.
+- DynamoDB에 `SCHEDULE#MONTH#2026-08`, `LATEST#2026-08-27`, `DAY#2026-08-27`이 자동 생성된다.
+- SQS에 월간 일정 snapshot과 당일 snapshot이 각각 내용 변경 시 한 번 발행된다.
+- EventBridge Scheduler에 `inning-log-crawler-run-2026-08-27`이 하나만 생성된다.
+
+검증 후 fixture 날짜가 지난 일회성 schedule은 삭제한다. 매일 06:00 반복 schedule은 계속 `fixture --dry-run`으로 두며, `fixture-aws`를 상시 fixture 데이터 공급용으로 사용하지 않는다.
+
 ## 14. 10단계 — EventBridge Scheduler 일일 계획 작업
 
 Scheduler 콘솔은 ECS 콘솔보다 기능이 많으므로 EventBridge Scheduler에서 직접 만든다. [AWS 공식 ECS 예약 작업 절차](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/tasks-scheduled-eventbridge-scheduler.html)
+
+이 절의 `fixture --dry-run` target은 매일 실행 경로의 안전성만 확인하며 KBO, DynamoDB와 SQS를 호출하지 않는다. AWS 저장 통합 시험은 13.1절에서 별도로 수행한다.
 
 1. 상단 검색창에서 `EventBridge Scheduler`를 연다.
 2. 왼쪽 **Schedule groups**에서 **Create schedule group**을 누른다.
@@ -679,7 +946,7 @@ cron(0 6 * * ? *)
 27. Retry policy는 켜고 Maximum age `1 hour`, Maximum retries `2`로 설정한다.
 28. DLQ는 **Select an Amazon SQS queue in my AWS account**를 선택한다.
 29. `inning-log-crawler-scheduler-dlq`를 선택한다.
-30. Permissions는 `inning-log-crawler-scheduler`를 선택한다. 아직 없다면 **Create new role for this schedule**로 만들고 이후 최소 권한을 확인한다.
+30. Permissions는 **Use existing role**을 선택하고 9.3절에서 만든 `inning-log-crawler-scheduler`를 지정한다. 이 화면에서 새 role을 만들지 않는다.
 31. **Next → Review → Create schedule**을 누른다.
 32. 목록에서 State가 `Enabled`인지, 다음 실행 시각이 KST 기준 의도와 일치하는지 확인한다.
 

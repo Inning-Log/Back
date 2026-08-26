@@ -76,6 +76,9 @@ const configSchema = z.object({
   enabled: z.boolean(),
   provider: z.enum(["fixture", "kbo"]),
   timezone: z.literal("Asia/Seoul"),
+  runtime: z.object({
+    persistence: z.enum(["memory", "aws"]),
+  }).strict(),
   identity: z.object({
     product: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{2,63}$/),
     version: z.string().min(1).max(32),

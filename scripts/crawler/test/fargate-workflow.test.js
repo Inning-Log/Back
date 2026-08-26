@@ -48,7 +48,18 @@ test("daily planner publishes schedule and creates exactly one earliest-game tas
     config: config(),
     source: {
       kind: "fixture",
-      fetchSchedule: async () => ({ games: [game("SCHEDULED", scheduledAt)], anomalies: [] }),
+      fetchScheduleMonth: async () => ({
+        games: [
+          game("SCHEDULED", scheduledAt),
+          game("SCHEDULED", "2026-08-27T18:30:00+09:00", {
+            date: "2026-08-27",
+            externalId: { kbo: "20260827LTHT0", naver: null },
+            awayTeam: "롯데",
+            homeTeam: "KIA",
+          }),
+        ],
+        anomalies: [],
+      }),
       getMetrics: () => ({ logicalRequests: 0, attempts: 0 }),
     },
     state,
@@ -60,7 +71,10 @@ test("daily planner publishes schedule and creates exactly one earliest-game tas
   });
   assert.equal(result.schedule.action, "upserted");
   assert.equal(scheduler.schedules.get("2026-08-26"), "2026-08-26T08:30:00.000Z");
-  assert.equal(publisher.messages.length, 1);
+  assert.equal(result.month, "2026-08");
+  assert.equal(result.monthGameCount, 2);
+  assert.equal((await state.getJson("SCHEDULE#MONTH#2026-08")).games.length, 2);
+  assert.equal(publisher.messages.length, 2);
 
   await state.acquireLease("LEASE#PLAN#2026-08-26", "other", Math.floor(current / 1000) + 600, Math.floor(current / 1000));
   const duplicate = await runPlanDay({

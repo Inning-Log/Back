@@ -17,10 +17,19 @@ test("Fargate fixture profile is enabled, local-only, and policy-safe", async ()
   const loaded = await loadFargateConfig({ env: {} });
   assert.equal(loaded.profile, "fixture");
   assert.equal(loaded.config.provider, "fixture");
+  assert.equal(loaded.config.runtime.persistence, "memory");
   assert.equal(evaluateLivePolicy(loaded.config).ok, true);
   assert.equal(loaded.config.endpoints.schedule, KBO_ENDPOINTS.schedule);
   assert.equal(loaded.config.endpoints.scoreboard, KBO_ENDPOINTS.scoreboard);
   assert.equal(loaded.config.polling.finalCheckOffsetsMs[2], 90 * 60_000);
+});
+
+test("fixture-aws profile keeps fixture input while selecting real AWS persistence", async () => {
+  const loaded = await loadFargateConfig({ profile: "fixture-aws", env: {} });
+  assert.equal(loaded.config.provider, "fixture");
+  assert.equal(loaded.config.runtime.persistence, "aws");
+  assert.equal(evaluateLivePolicy(loaded.config).ok, true);
+  assert.throws(() => assertAwsRuntimeConfig(loaded.config), /AWS runtime settings are missing/);
 });
 
 test("KBO deployment profile remains fail-closed by default", async () => {

@@ -6,6 +6,9 @@ base:
   provider: fixture
   timezone: Asia/Seoul
 
+  runtime:
+    persistence: memory
+
   identity:
     product: InningLogCrawler
     version: 3.0.0
@@ -70,6 +73,16 @@ profiles:
   fixture:
     enabled: true
     provider: fixture
+    policy:
+      killSwitch: false
+
+  # End-to-end AWS integration profile. It reads only bundled fixture HTML,
+  # while DynamoDB, SQS and EventBridge Scheduler use the real AWS adapters.
+  fixture-aws:
+    enabled: true
+    provider: fixture
+    runtime:
+      persistence: aws
     policy:
       killSwitch: false
 

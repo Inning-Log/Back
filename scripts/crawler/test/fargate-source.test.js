@@ -64,9 +64,9 @@ test("KBO source applies persistent quotas, bounded spacing, and injected HTML o
       },
     },
   });
-  const schedule = await source.fetchSchedule("2026-08-26");
+  const schedule = await source.fetchScheduleMonth("2026-08-26");
   const scoreboard = await source.fetchScoreboard("2026-08-26");
-  assert.equal(schedule.games.length, 2);
+  assert.equal(schedule.games.length, 4);
   assert.equal(scoreboard.games.length, 1);
   assert.deepEqual(calls, [config.endpoints.schedule, config.endpoints.scoreboard]);
   assert.equal(source.getMetrics().logicalRequests, 2);

@@ -40,8 +40,27 @@ function snapshot({ config, source, dateKey, mode, observedAt, games, anomalies 
   };
 }
 
+function monthlyScheduleSnapshot({ source, monthKey, observedAt, games, anomalies }) {
+  return {
+    schemaVersion: 1,
+    source: source.kind === "fixture" ? "fixture-kbo-pages" : "kbo-pages",
+    mode: "schedule-month",
+    date: `${monthKey}-01`,
+    month: monthKey,
+    observedAt: iso(observedAt),
+    games,
+    anomalies,
+    requestMetrics: source.getMetrics(),
+  };
+}
+
 async function saveAndPublish({ state, publisher, value, nowMs }) {
   await state.putJson(`LATEST#${value.date}`, value, expiry(nowMs));
+  return publisher.publishIfChanged(value);
+}
+
+async function saveMonthSchedule({ state, publisher, value, nowMs }) {
+  await state.putJson(`SCHEDULE#MONTH#${value.month}`, value, expiry(nowMs, 400));
   return publisher.publishIfChanged(value);
 }
 
@@ -76,7 +95,30 @@ export async function runPlanDay(context) {
   if (!acquired) return { skipped: true, reason: "lease-held", date: dateKey };
 
   try {
-    const schedule = await source.fetchSchedule(dateKey, { signal: context.signal });
+    const monthlySchedule = typeof source.fetchScheduleMonth === "function"
+      ? await source.fetchScheduleMonth(dateKey, { signal: context.signal })
+      : null;
+    const schedule = monthlySchedule == null
+      ? await source.fetchSchedule(dateKey, { signal: context.signal })
+      : {
+        games: monthlySchedule.games.filter((game) => game.date === dateKey),
+        anomalies: monthlySchedule.anomalies.filter((entry) => entry.date === dateKey),
+      };
+    const monthKey = dateKey.slice(0, 7);
+    const monthValue = monthlySchedule == null
+      ? null
+      : monthlyScheduleSnapshot({
+        source,
+        monthKey,
+        observedAt: now(),
+        games: monthlySchedule.games,
+        anomalies: monthlySchedule.anomalies,
+      });
+    const monthPublish = monthValue == null
+      ? null
+      : (dryRun
+        ? { changed: false, dryRun: true }
+        : await saveMonthSchedule({ state, publisher, value: monthValue, nowMs: now() }));
     const value = snapshot({
       config,
       source,
@@ -114,6 +156,9 @@ export async function runPlanDay(context) {
       date: dateKey,
       gameCount: schedule.games.length,
       activeGameCount: activeGames(schedule.games).length,
+      month: monthValue == null ? null : monthKey,
+      monthGameCount: monthValue?.games.length ?? null,
+      monthPublish,
       anomalies: schedule.anomalies,
       publish,
       schedule: scheduleAction,

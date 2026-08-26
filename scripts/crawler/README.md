@@ -29,11 +29,12 @@ AWS Fargate용 KBO 두 페이지 전용 경로는 별도 CLI로 격리되어 있
 
 ```bash
 npm run fargate:config:check -- --profile fixture
+npm run fargate:config:check -- --profile fixture-aws
 npm run fargate:policy:check -- --profile kbo-locked
 npm run fargate:plan -- --profile fixture --dry-run
 ```
 
-`kbo-locked`는 코드가 완성되어 있어도 기본 `enabled: false`, kill switch 활성, 승인 `unverified`라 정책 검사가 의도적으로 실패한다. `--check-config`, `--check-policy`, `--dry-run`은 KBO나 AWS를 호출하지 않는다. 실제 Fargate 실행은 `src/fargate/main.js`만 사용하며 URL은 다음 두 문자열로 코드에 고정되어 환경변수로 바꿀 수 없다.
+`fixture-aws`는 번들된 KBO 모양 HTML만 읽으면서 DynamoDB, SQS와 EventBridge Scheduler는 실제 AWS adapter를 사용하는 통합 시험 프로필이다. 외부 요청 없이 AWS 전체 경로와 월간 일정 저장을 확인할 때만 사용한다. `kbo-locked`는 코드가 완성되어 있어도 기본 `enabled: false`, kill switch 활성, 승인 `unverified`라 정책 검사가 의도적으로 실패한다. `--check-config`, `--check-policy`, `--dry-run`은 KBO나 AWS를 호출하지 않는다. 실제 Fargate 실행은 `src/fargate/main.js`만 사용하며 URL은 다음 두 문자열로 코드에 고정되어 환경변수로 바꿀 수 없다.
 
 - `https://www.koreabaseball.com/Schedule/Schedule.aspx`
 - `https://www.koreabaseball.com/Schedule/ScoreBoard.aspx`
@@ -158,6 +159,7 @@ profiles:
 - `safe`: 모든 실행과 출력을 잠가 두는 점검용 프로필이다.
 - `hybrid-locked`: 과거 KBO+NAVER 검토 흔적을 재현하기 위한 잠긴 프로필이다. 현재 제품 범위가 아니며 배포하지 않는다.
 - Fargate 전용 `config/fargate.yml`의 `fixture`: 두 페이지 DOM을 모사한 로컬 HTML만 읽는다.
+- Fargate 전용 `fixture-aws`: 같은 로컬 HTML을 읽지만 DynamoDB `SCHEDULE#MONTH#YYYY-MM`, 날짜별 snapshot, SQS와 일회성 Scheduler를 실제 AWS에 기록한다.
 - Fargate 전용 `kbo-locked`: 실제 page-only adapter용이지만 서면 허가 값을 넣고 kill switch를 명시적으로 내리기 전까지 차단된다.
 
 유효 설정의 우선순위는 낮은 쪽부터 다음과 같다.
@@ -224,7 +226,7 @@ fargate.yml base < profiles.<selected> < 허용 목록에 있는 환경변수 < 
 
 승인 관련 `CRAWLER_AUTH_*` 값은 허가서의 식별자, 검토·만료 시각과 `schedule-page,scoreboard-page,robots-disallow-override` scope를 그대로 반영해야 한다. 증빙 원문이나 개인정보는 환경변수와 Git에 넣지 않는다.
 
-Fargate 결과는 DynamoDB의 날짜별 상태와 lease, 시간당 요청 quota를 사용한다. SQS Standard queue 메시지에는 내용 지문 기반 `idempotencyKey`가 포함되지만 at-least-once 전달 자체는 가능하므로 소비자도 이 키로 멱등 처리한다. 원본 HTML은 DynamoDB, SQS 또는 로그에 저장하지 않는다.
+Fargate 계획 작업은 일정 페이지 한 번에서 표시된 월 전체 행을 정규화해 DynamoDB `SCHEDULE#MONTH#YYYY-MM`에 저장하고, 당일 경기만 분리해 일회성 경기 Task 시각을 계산한다. 월간 일정 변경은 `KBO_SCHEDULE_MONTH_SNAPSHOT`, 당일 계획·경기 상태 변경은 `KBO_GAME_SNAPSHOT`으로 SQS에 발행한다. 메시지에는 내용 지문 기반 `idempotencyKey`가 포함되지만 Standard queue의 at-least-once 전달 자체는 가능하므로 소비자도 이 키로 멱등 처리한다. 원본 HTML은 DynamoDB, SQS 또는 로그에 저장하지 않는다.
 
 ## CLI
 

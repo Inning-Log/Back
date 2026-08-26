@@ -94,7 +94,7 @@ function validateIdentity(game, context) {
   return game;
 }
 
-export function parseKboSchedulePage(html, targetDate, options = {}) {
+export function parseKboScheduleMonthPage(html, targetMonth, options = {}) {
   const $ = load(String(html ?? ""));
   const table = $("#tblScheduleList");
   if (table.length !== 1) {
@@ -105,11 +105,10 @@ export function parseKboSchedulePage(html, targetDate, options = {}) {
   if (!/^20\d{2}$/.test(year) || !/^\d{1,2}$/.test(month)) {
     throw new KboPageSchemaError("KBO schedule page year/month selectors are missing or invalid");
   }
-  const targetMonth = targetDate.slice(0, 7);
   const pageMonth = `${year}-${month.padStart(2, "0")}`;
-  if (pageMonth !== targetMonth) {
+  if (targetMonth != null && pageMonth !== targetMonth) {
     throw new KboPageSchemaError(
-      `KBO schedule page month ${pageMonth} does not contain target date ${targetDate}`
+      `KBO schedule page month ${pageMonth} does not match target month ${targetMonth}`
     );
   }
 
@@ -137,14 +136,13 @@ export function parseKboSchedulePage(html, targetDate, options = {}) {
     if (!currentDate) {
       throw new KboPageSchemaError(`Schedule row ${rowIndex} appears before a date cell`);
     }
-    if (currentDate !== targetDate) continue;
-
     const timeText = clean(row.children("td.time").first().text());
     const play = row.children("td.play").first();
     const teamTexts = play.children("span").toArray().map((cell) => clean($(cell).text()));
     if (teamTexts.length !== 2 || !/^\d{1,2}:\d{2}$/.test(timeText)) {
       anomalies.push({
         type: "INVALID_SCHEDULE_ROW",
+        date: currentDate,
         row: rowIndex,
         message: "team or scheduled time structure changed",
       });
@@ -166,14 +164,14 @@ export function parseKboSchedulePage(html, targetDate, options = {}) {
       const linkText = row.find("a[href*='gameId=']").toArray()
         .map((link) => $(link).attr("href"))
         .join(" ");
-      const gameId = extractGameId(linkText, targetDate);
+      const gameId = extractGameId(linkText, currentDate);
       const hasReview = row.find("a").toArray().some((link) => /리뷰/i.test(clean($(link).text())));
       const status = scheduleStatus(note, score, hasReview);
       const game = normalizeGameSnapshot({
-        date: targetDate,
+        date: currentDate,
         source: { kbo: true, naver: false },
         externalId: { kbo: gameId, naver: null },
-        scheduledAt: `${targetDate}T${timeText}:00+09:00`,
+        scheduledAt: `${currentDate}T${timeText}:00+09:00`,
         startedAt: null,
         endedAt: null,
         awayTeam: strictTeam(teamTexts[0], `schedule row ${rowIndex}`),
@@ -192,18 +190,34 @@ export function parseKboSchedulePage(html, targetDate, options = {}) {
     } catch (error) {
       anomalies.push({
         type: "INVALID_SCHEDULE_ROW",
+        date: currentDate,
         row: rowIndex,
         message: String(error.message ?? error).slice(0, 200),
       });
     }
   }
   if (games.length === 0 && anomalies.length > 0) {
+    throw new KboPageSchemaError("Every monthly schedule row failed validation", { anomalies });
+  }
+  if (games.length > (options.maxGames ?? 200)) {
+    throw new KboPageSchemaError("KBO monthly schedule game count exceeded configured safety maximum");
+  }
+  return { games, anomalies, pageDate: pageMonth };
+}
+
+export function parseKboSchedulePage(html, targetDate, options = {}) {
+  const month = parseKboScheduleMonthPage(html, targetDate.slice(0, 7), {
+    maxGames: options.maxMonthGames,
+  });
+  const games = month.games.filter((game) => game.date === targetDate);
+  const anomalies = month.anomalies.filter((entry) => entry.date === targetDate);
+  if (games.length === 0 && anomalies.length > 0) {
     throw new KboPageSchemaError("Every target-date schedule row failed validation", { anomalies });
   }
   if (games.length > (options.maxGames ?? 10)) {
-    throw new KboPageSchemaError("KBO schedule game count exceeded configured safety maximum");
+    throw new KboPageSchemaError("KBO daily schedule game count exceeded configured safety maximum");
   }
-  return { games, anomalies, pageDate: pageMonth };
+  return { games, anomalies, pageDate: month.pageDate };
 }
 
 function scoreboardStatus(flagText, inning) {

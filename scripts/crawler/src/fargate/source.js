@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import axios from "axios";
 import { KBO_ENDPOINTS, assertLivePolicy } from "./config.js";
-import { parseKboSchedulePage, parseKboScoreboardPage } from "./kbo-pages.js";
+import {
+  parseKboScheduleMonthPage,
+  parseKboSchedulePage,
+  parseKboScoreboardPage,
+} from "./kbo-pages.js";
 
 export class KboRequestError extends Error {
   constructor(message, code = "KBO_REQUEST_FAILED", details = {}) {
@@ -74,6 +78,10 @@ export function createKboPageSource(config, dependencies = {}) {
   if (config.provider === "fixture") {
     return {
       kind: "fixture",
+      async fetchScheduleMonth(dateKey) {
+        const html = await readFile(config.fixture.scheduleFile, "utf8");
+        return parseKboScheduleMonthPage(html, dateKey.slice(0, 7));
+      },
       async fetchSchedule(dateKey) {
         const html = await readFile(config.fixture.scheduleFile, "utf8");
         return parseKboSchedulePage(html, dateKey);
@@ -225,6 +233,15 @@ export function createKboPageSource(config, dependencies = {}) {
 
   return {
     kind: "kbo",
+    async fetchScheduleMonth(dateKey, options = {}) {
+      const html = await request("schedule", options.signal);
+      try {
+        return parseKboScheduleMonthPage(html, dateKey.slice(0, 7));
+      } catch (error) {
+        await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
+        throw error;
+      }
+    },
     async fetchSchedule(dateKey, options = {}) {
       const html = await request("schedule", options.signal);
       try {

@@ -224,7 +224,9 @@ export class SnapshotPublisher {
     const idempotencyKey = `${snapshot.date}:${snapshot.mode}:${fingerprint}`;
     const message = {
       schemaVersion: 1,
-      type: "KBO_GAME_SNAPSHOT",
+      type: snapshot.mode === "schedule-month"
+        ? "KBO_SCHEDULE_MONTH_SNAPSHOT"
+        : "KBO_GAME_SNAPSHOT",
       idempotencyKey,
       occurredAt: new Date(this.now()).toISOString(),
       payload: { ...snapshot, contentFingerprint: fingerprint },

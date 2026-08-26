@@ -87,7 +87,7 @@ Actions (choose one):
   --help                 Show this help
 
 Options:
-  --profile NAME         fixture (default) | kbo-locked
+  --profile NAME         fixture (default) | fixture-aws | kbo-locked
   --config PATH          Configuration file (default: config/fargate.yml)
   --date YYYY-MM-DD      Defaults to today's date in Asia/Seoul
   --dry-run              Zero-network plan inspection; valid with --plan-day only
@@ -102,7 +102,7 @@ function logJson(value) {
 }
 
 function runtimeDependencies(config, profile, dryRun, dependencies) {
-  if (config.provider === "fixture" || dryRun) {
+  if (config.runtime.persistence === "memory" || dryRun) {
     const state = dependencies.state ?? new MemoryStateStore();
     return {
       state,

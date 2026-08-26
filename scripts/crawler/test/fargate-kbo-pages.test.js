@@ -6,6 +6,7 @@ import {
   KboPageSchemaError,
   allGamesTerminal,
   mergeKboPages,
+  parseKboScheduleMonthPage,
   parseKboSchedulePage,
   parseKboScoreboardPage,
 } from "../src/fargate/kbo-pages.js";
@@ -28,6 +29,17 @@ test("KBO schedule page parser handles row-spanned dates and cancellation notes"
   assert.equal(result.games[0].scheduledAt, "2026-08-26T09:30:00.000Z");
   assert.equal(result.games[1].status, "CANCELLED");
   assert.equal(result.games[1].stadium, "문학");
+});
+
+test("KBO schedule month parser preserves every displayed date from one response", async () => {
+  const [html] = await fixtures();
+  const result = parseKboScheduleMonthPage(html, "2026-08");
+  assert.equal(result.pageDate, "2026-08");
+  assert.equal(result.games.length, 4);
+  assert.deepEqual([...new Set(result.games.map((game) => game.date))], ["2026-08-25", "2026-08-26", "2026-08-27"]);
+  assert.equal(result.games[0].status, "FINISHED");
+  assert.deepEqual(result.games[0].score, { away: 4, home: 7 });
+  assert.equal(result.games.find((game) => game.date === "2026-08-27").scheduledAt, "2026-08-27T09:30:00.000Z");
 });
 
 test("KBO scoreboard parser extracts the seven requested fields without play events", async () => {
