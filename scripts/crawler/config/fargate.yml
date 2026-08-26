@@ -86,6 +86,23 @@ profiles:
     policy:
       killSwitch: false
 
+  # MVP 승인 후 실제 KBO 동작 프로필. fixture을 사용하지 않고, KBO
+  # Schedule.aspx + ScoreBoard.aspx 두 페이지만 허가 범위로 운영한다.
+  # approval evidence/robot 예외/kill switch는 환경변수로 주입한다.
+  kbo-live:
+    enabled: true
+    provider: kbo
+    runtime:
+      persistence: aws
+    policy:
+      killSwitch: true
+      authorizationStatus: unverified
+      authorizationEvidence: null
+      authorizationReviewedAt: null
+      authorizationExpiresAt: null
+      authorizationScopes: []
+      robotsExceptionGranted: false
+
   # Deployment profile. It is intentionally impossible to run until the
   # reviewed authorization fields and kill switch are changed explicitly.
   kbo-locked:

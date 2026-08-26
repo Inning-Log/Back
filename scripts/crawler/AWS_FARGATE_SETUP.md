@@ -976,7 +976,7 @@ cron(0 6 * * ? *)
   "containerOverrides": [
     {
       "name": "crawler",
-      "command": ["--run-game-window", "--profile", "kbo-locked", "--date", "2026-08-26"]
+      "command": ["--run-game-window", "--profile", "kbo-live", "--date", "2026-08-26"]
     }
   ]
 }
@@ -999,10 +999,11 @@ AWS 인프라가 정상이라고 바로 KBO profile을 켜지 않는다.
 9. `policy:check`와 전체 테스트를 통과한다.
 10. 처음에는 한 경기일만 제한적으로 실행하고 CloudWatch 요청량을 대조한다.
 
-실행 허가를 실제로 확보했다면 새 Task definition revision에 다음 값을 허가서와 그대로 대응시킨다. 예시 문구나 임의 날짜를 복사하지 않는다.
+실행 허가를 실제로 확보했다면 새 Task definition revision에 `CRAWLER_PROFILE=kbo-live`를 넣고, 아래 값을 허가서와 그대로 대응시킨다. 예시 문구나 임의 날짜를 복사하지 않는다.
 
 | Key | 값의 출처 |
 | --- | --- |
+| `CRAWLER_PROFILE` | `kbo-live` |
 | `CRAWLER_ENABLED` | `true` |
 | `CRAWLER_KILL_SWITCH` | 최종 승인 시에만 `false` |
 | `CRAWLER_OPERATOR_CONTACT` | 실제 연락 가능한 `mailto:` 주소 |

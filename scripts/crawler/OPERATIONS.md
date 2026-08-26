@@ -16,7 +16,7 @@ npm run crawl -- --profile fixture
 
 ### 실 네트워크 모드 — 기본 차단
 
-과거 `safe`와 `hybrid-locked`는 범용 CLI의 차단 회귀 테스트용일 뿐 운영하지 않는다. 실제 배포 대상은 `src/fargate/main.js`와 `config/fargate.yml`의 `kbo-locked`이며 KBO `Schedule.aspx`, `ScoreBoard.aspx` 두 페이지 외에는 요청할 수 없다. 이름에 `locked`가 붙은 그대로 기본 상태는 실행 불가이고, 프로필 이름만으로 실행 허가가 생기지 않는다.
+과거 `safe`와 `hybrid-locked`는 범용 CLI의 차단 회귀 테스트용일 뿐 운영하지 않는다. 실제 배포 대상은 `src/fargate/main.js`와 `config/fargate.yml`의 `kbo-live`이며, 기본 상태에서는 `kbo-locked`가 이름 그대로 실행 불가입니다. 실제 환경은 `kbo-live` 프로필로 전환해서만 허용합니다.
 
 실행 전 매번 다음 순서로 확인한다.
 
@@ -34,6 +34,14 @@ npm run fargate:plan -- --profile kbo-locked --dry-run
 ```
 
 저장소의 `kbo-locked`는 `enabled: false`, 승인 `unverified`, `killSwitch: true`이므로 현재 정책 검사는 의도적으로 `BLOCK`과 exit code `2`가 된다. dry-run은 이 상태에서도 외부 요청 `0`으로 계획과 고정 URL만 보여 준다. 정책 검사에 실패하면 설정을 우회하거나 검사 코드를 끄지 않는다.
+
+실제 허가가 완료되면 같은 절차를 `kbo-live`로 반복하고, 추가로 아래를 확인한다.
+
+```bash
+npm run fargate:config:check -- --profile kbo-live --print-config
+npm run fargate:policy:check -- --profile kbo-live
+npm run fargate:plan -- --profile kbo-live --dry-run
+```
 
 `--check-policy`는 네트워크 없는 사전 검사다. 승인 상태·증빙 식별자·scope·최근 검토 시각·만료와 robots 예외 기록을 검증한다. Fargate 실행의 네트워크 범위를 정확히 두 페이지로 유지하기 위해 런타임이 robots URL을 세 번째로 요청하지는 않는다. 운영자가 활성화 직전 공식 robots 원문을 다시 확인하고, 7일 이내 검토 시각과 두 경로의 서면 예외를 설정해야 한다. 해당 기록이 오래됐거나 없으면 두 페이지 요청 전 정책 게이트가 차단한다.
 
@@ -60,7 +68,7 @@ npm run fargate:plan -- --profile kbo-locked --dry-run
 1. YAML의 `base`에는 모든 환경에 적용할 보수적 기본값을 둔다.
 2. `profiles.fixture`에는 네트워크를 사용하지 않는 개발·테스트 설정을 둔다.
 3. 범용 CLI의 `profiles.safe`, `profiles.hybrid-locked`는 과거 구조 차단 회귀용으로만 유지한다.
-4. KBO 두 페이지 전용 profile은 `config/fargate.yml`의 `kbo-locked`만 사용한다. URL은 코드 상수이므로 환경변수로 교체할 수 없다.
+4. KBO 두 페이지 전용 profile은 승인 전에는 `config/fargate.yml`의 `kbo-locked`로 확인하고, 승인 후에는 `kbo-live`를 사용한다. URL은 코드 상수이므로 환경변수로 교체할 수 없다.
 5. 허가 후 저부하 제한과 승인 식별자는 저장소 밖 환경 파일이나 환경변수로 주입한다.
 6. 한 번의 실행에만 필요한 값은 명시적 CLI 옵션 또는 `--set`으로 덮어쓴다.
 7. 변경 뒤 `--check-config`, `--print-config`, `--check-policy`, `--dry-run` 순으로 검증한다.

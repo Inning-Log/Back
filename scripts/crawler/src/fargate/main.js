@@ -87,7 +87,7 @@ Actions (choose one):
   --help                 Show this help
 
 Options:
-  --profile NAME         fixture (default) | fixture-aws | kbo-locked
+  --profile NAME         fixture (default) | fixture-aws | kbo-locked | kbo-live
   --config PATH          Configuration file (default: config/fargate.yml)
   --date YYYY-MM-DD      Defaults to today's date in Asia/Seoul
   --dry-run              Zero-network plan inspection; valid with --plan-day only
