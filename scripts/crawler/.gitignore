@@ -5,3 +5,5 @@ out/
 !.env.example
 config/local.yml
 *.tmp
+LIVE_VERIFICATION_2026-09-14.md
+iam/backend-game-snapshot-consumer.json
