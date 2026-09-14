@@ -1,5 +1,7 @@
 # 크롤러 운영 안내서
 
+> 2026-09-14: 실제 MVP 실행은 [LIVE_RUN.md](./LIVE_RUN.md)를 따른다. `kbo-live`는 운영자 요청 실행 모드이며, 아래 승인 확인 절차는 `kbo-locked`에 해당한다.
+
 이 문서는 크롤러를 안전하게 설정·검증·실행하고 이상 상황에 대응하는 절차다. 제품 범위는 [TARGET_SCOPE.md](./TARGET_SCOPE.md), 정책 판단은 [POLICY.md](./POLICY.md), AWS 운영은 [AWS_FARGATE_SETUP.md](./AWS_FARGATE_SETUP.md)를 기준으로 하며 명령 예시는 `scripts/crawler` 디렉터리에서 실행한다.
 
 ## 1. 운영 모드

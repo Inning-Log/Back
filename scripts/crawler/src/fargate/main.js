@@ -18,7 +18,7 @@ import {
   SnapshotPublisher,
 } from "./aws.js";
 import { createKboPageSource } from "./source.js";
-import { isStrictDate, runGameWindow, runPlanDay, todayInSeoul } from "./workflow.js";
+import { isStrictDate, runCollectOnce, runGameWindow, runPlanDay, todayInSeoul } from "./workflow.js";
 
 export function parseFargateArgs(argv) {
   const output = {
@@ -31,6 +31,7 @@ export function parseFargateArgs(argv) {
   };
   const actionFlags = new Map([
     ["--plan-day", "plan-day"],
+    ["--collect-once", "collect-once"],
     ["--run-game-window", "run-game-window"],
     ["--check-config", "check-config"],
     ["--check-policy", "check-policy"],
@@ -70,7 +71,7 @@ export function parseFargateArgs(argv) {
   }
   if (!output.action) throw new FargateConfigError("One action is required; use --help");
   if (output.date && !isStrictDate(output.date)) throw new FargateConfigError("--date must be YYYY-MM-DD");
-  if (output.action === "run-game-window" && output.dryRun) {
+  if (["run-game-window", "collect-once"].includes(output.action) && output.dryRun) {
     throw new FargateConfigError("--dry-run cannot start a game-window loop; use --plan-day --dry-run");
   }
   return output;
@@ -80,6 +81,7 @@ export function formatFargateHelp() {
   return `Inning Log KBO page-only Fargate crawler
 
 Actions (choose one):
+  --collect-once         Fetch month + scoreboard once, publish, and verify state read-back
   --plan-day             Read today's schedule and upsert one game-window task
   --run-game-window      Poll schedule/scoreboard only during the bounded game window
   --check-config         Validate configuration without AWS or KBO access
@@ -93,7 +95,7 @@ Options:
   --dry-run              Zero-network plan inspection; valid with --plan-day only
   --print-config         Print redacted effective configuration
 
-The deployed scope is exactly Schedule.aspx and ScoreBoard.aspx. The safe image
+The live source uses Schedule.aspx's GetScheduleList request and ScoreBoard.aspx. The safe image
 default is: --plan-day --profile fixture --dry-run.`;
 }
 
@@ -189,7 +191,9 @@ export async function main(argv = process.argv.slice(2), environment = process.e
       sleep: dependencies.sleep,
       owner: dependencies.owner,
     };
-    const result = args.action === "plan-day"
+    const result = args.action === "collect-once"
+      ? await runCollectOnce(context)
+      : args.action === "plan-day"
       ? await runPlanDay(context)
       : await runGameWindow(context);
     logJson({ action: args.action, profile, ...result });

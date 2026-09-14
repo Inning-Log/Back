@@ -4,6 +4,7 @@ import { KBO_ENDPOINTS, assertLivePolicy } from "./config.js";
 import {
   parseKboScheduleMonthPage,
   parseKboSchedulePage,
+  parseKboScheduleResponse,
   parseKboScoreboardPage,
 } from "./kbo-pages.js";
 
@@ -20,7 +21,6 @@ function abortableSleep(ms, signal) {
   if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
   return new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, ms);
-    timer.unref?.();
     signal?.addEventListener("abort", () => {
       clearTimeout(timer);
       reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
@@ -168,9 +168,9 @@ export function createKboPageSource(config, dependencies = {}) {
     await state?.reserveQuota?.(`KBO#${kind}#${hourBucket(now())}`, limit, Math.floor(now() / 1000) + 7_200);
   }
 
-  async function request(capability, signal) {
+  async function request(capability, signal, form = null) {
     assertLivePolicy(config, new Date(now()));
-    const url = config.endpoints[capability];
+    const url = capability === "scheduleData" ? KBO_ENDPOINTS.scheduleData : config.endpoints[capability];
     assertExactEndpoint(capability, url);
     await assertCircuitClosed();
     await reserve("LOGICAL", config.request.maxLogicalRequestsPerHour, signal);
@@ -190,7 +190,13 @@ export function createKboPageSource(config, dependencies = {}) {
       if (cached?.etag) headers["if-none-match"] = cached.etag;
       if (cached?.lastModified) headers["if-modified-since"] = cached.lastModified;
       try {
-        const response = await client.get(url, { headers, signal });
+        const response = form == null
+          ? await client.get(url, { headers, signal })
+          : await client.post(url, form.toString(), { headers: {
+            ...headers,
+            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+            referer: KBO_ENDPOINTS.schedule,
+          }, signal });
         const status = response.status;
         if (status === 304 && cached?.body != null) return cached.body;
         if (status >= 300 && status < 400) {
@@ -212,9 +218,23 @@ export function createKboPageSource(config, dependencies = {}) {
           }
           throw Object.assign(new Error(`HTTP ${status}`), { retryable: true });
         }
-        const body = String(response.data ?? "");
+        const body = typeof response.data === "object" ? JSON.stringify(response.data) : String(response.data ?? "");
         if (bodyBytes(body) > config.request.maxResponseBytes) {
           throw new KboRequestError("KBO response exceeded the byte limit", "KBO_RESPONSE_TOO_LARGE");
+        }
+        if (looksBlocked(body)) {
+          await tripCircuit("KBO_BOT_CHALLENGE", 24 * 60 * 60_000);
+          throw new KboRequestError("KBO bot/access challenge detected; stopping", "KBO_BOT_CHALLENGE");
+        }
+        if (capability === "scheduleData") {
+          try {
+            const data = JSON.parse(body);
+            if (!Array.isArray(data?.rows)) throw new Error("rows missing");
+            return data;
+          } catch {
+            await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
+            throw new KboRequestError("KBO schedule endpoint did not return a rows JSON response", "KBO_PAGE_SCHEMA_MISMATCH");
+          }
         }
         if (!/<(?:!doctype\s+html|html|body)\b/i.test(body)) {
           await tripCircuit("KBO_NON_HTML_RESPONSE", 6 * 60 * 60_000);
@@ -247,25 +267,38 @@ export function createKboPageSource(config, dependencies = {}) {
     );
   }
 
+  async function fetchMonth(dateKey, options = {}) {
+    const ajax = config.scheduleTransport === "page-ajax";
+    const result = ajax
+      ? await request("scheduleData", options.signal, new URLSearchParams({
+        leId: "1", srIdList: config.scheduleSeries, seasonId: dateKey.slice(0, 4),
+        gameMonth: dateKey.slice(5, 7), teamId: "",
+      }))
+      : await request("schedule", options.signal);
+    try {
+      return stampPageObservation(ajax
+        ? parseKboScheduleResponse(result, dateKey.slice(0, 7), config.scheduleSeries)
+        : parseKboScheduleMonthPage(result, dateKey.slice(0, 7)), "schedule", now());
+    } catch (error) {
+      await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
+      throw error;
+    }
+  }
+
   return {
     kind: "kbo",
     async fetchScheduleMonth(dateKey, options = {}) {
-      const html = await request("schedule", options.signal);
-      try {
-        return stampPageObservation(parseKboScheduleMonthPage(html, dateKey.slice(0, 7)), "schedule", now());
-      } catch (error) {
-        await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
-        throw error;
-      }
+      return fetchMonth(dateKey, options);
     },
     async fetchSchedule(dateKey, options = {}) {
-      const html = await request("schedule", options.signal);
-      try {
-        return stampPageObservation(parseKboSchedulePage(html, dateKey), "schedule", now());
-      } catch (error) {
+      const month = await fetchMonth(dateKey, options);
+      const games = month.games.filter(game => game.date === dateKey);
+      const anomalies = month.anomalies.filter(entry => entry.date === dateKey);
+      if ((games.length === 0 && anomalies.length > 0) || games.length > 10) {
         await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
-        throw error;
+        throw new KboRequestError("Invalid target-date schedule rows", "KBO_PAGE_SCHEMA_MISMATCH");
       }
+      return { games, anomalies, pageDate: month.pageDate };
     },
     async fetchScoreboard(dateKey, options = {}) {
       const html = await request("scoreboard", options.signal);

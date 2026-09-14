@@ -14,6 +14,7 @@
     "config:print": "node src/crawler.js --print-config",
     "policy:check": "node src/crawler.js --check-policy",
     "fargate:plan": "node src/fargate/main.js --plan-day",
+    "fargate:collect": "node src/fargate/main.js --collect-once",
     "fargate:window": "node src/fargate/main.js --run-game-window",
     "fargate:config:check": "node src/fargate/main.js --check-config",
     "fargate:policy:check": "node src/fargate/main.js --check-policy",

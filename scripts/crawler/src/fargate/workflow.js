@@ -19,7 +19,6 @@ function abortableSleep(ms, signal) {
   if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
   return new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, ms);
-    timer.unref?.();
     signal?.addEventListener("abort", () => {
       clearTimeout(timer);
       reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
@@ -70,6 +69,39 @@ function activeGames(games) {
 
 function windowStart(earliestAt, config) {
   return earliestAt == null ? null : earliestAt - config.polling.scoreboardLeadMs;
+}
+
+export async function runCollectOnce(context) {
+  const { config, source, state, publisher, dateKey } = context;
+  const now = context.now ?? (() => Date.now());
+  const owner = context.owner ?? randomUUID();
+  const leaseKey = `LEASE#WINDOW#${dateKey}`;
+  if (!await state.acquireLease(leaseKey, owner, Math.floor(now() / 1000) + 600, Math.floor(now() / 1000))) {
+    return { skipped: true, reason: "lease-held", date: dateKey };
+  }
+  try {
+    const month = await source.fetchScheduleMonth(dateKey, { signal: context.signal });
+    // One bounded diagnostic observation, even on a no-game day.
+    const scores = await source.fetchScoreboard(dateKey, { signal: context.signal });
+    const merged = mergeKboPages(month.games.filter(game => game.date === dateKey), scores.games);
+    const monthValue = monthlyScheduleSnapshot({ source, monthKey: dateKey.slice(0, 7), observedAt: now(), ...month });
+    const value = snapshot({ config, source, dateKey, mode: "game-window", observedAt: now(),
+      games: merged.games, anomalies: [...month.anomalies.filter(entry => entry.date === dateKey), ...scores.anomalies, ...merged.anomalies] });
+    const monthPublish = await saveMonthSchedule({ state, publisher, value: monthValue, nowMs: now() });
+    const publish = await saveAndPublish({ state, publisher, value, nowMs: now() });
+    const savedMonth = await state.getJson(`SCHEDULE#MONTH#${dateKey.slice(0, 7)}`);
+    const savedDay = await state.getJson(`LATEST#${dateKey}`);
+    if (savedMonth?.observedAt !== monthValue.observedAt || savedDay?.observedAt !== value.observedAt) {
+      throw new Error("State read-back did not match this collection");
+    }
+    return { skipped: false, date: dateKey, source: value.source, monthGameCount: month.games.length,
+      gameCount: value.games.length, anomalies: [...month.anomalies, ...value.anomalies], monthPublish, publish,
+      stateReadBackVerified: true, requestMetrics: source.getMetrics(),
+      sample: month.games.slice(0, 3).map(game => ({ date: game.date, scheduledAt: game.scheduledAt,
+        away: game.awayTeam.code, home: game.homeTeam.code, score: game.score, status: game.status })) };
+  } finally {
+    await state.releaseLease(leaseKey, owner);
+  }
 }
 
 export async function runPlanDay(context) {

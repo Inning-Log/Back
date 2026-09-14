@@ -231,6 +231,35 @@ export function parseKboSchedulePage(html, targetDate, options = {}) {
   return { games, anomalies, pageDate: month.pageDate };
 }
 
+// GetScheduleList returns the very same cells that the website renders into
+// #tblScheduleList. Build a detached Cheerio tree; never execute supplied markup.
+export function parseKboScheduleResponse(payload, month, series = "0,9,6") {
+  if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(month) || !Array.isArray(payload?.rows) || payload.rows.length > 200) {
+    throw new KboPageSchemaError("Invalid KBO monthly schedule response");
+  }
+  const $ = load('<select id="ddlYear"></select><select id="ddlMonth"></select><select id="ddlSeries"></select><table id="tblScheduleList"><thead><tr></tr></thead><tbody></tbody></table>');
+  $("#ddlYear").append($("<option selected></option>").attr("value", month.slice(0, 4)));
+  $("#ddlMonth").append($("<option selected></option>").attr("value", month.slice(5)));
+  $("#ddlSeries").append($("<option selected></option>").text(series === "0,9,6" ? "정규시즌" : series === "1" ? "시범경기" : "포스트시즌"));
+  for (const header of ["날짜", "시간", "경기", "게임센터", "하이라이트", "TV", "라디오", "구장", "비고"]) {
+    $("thead tr").append($("<th></th>").text(header));
+  }
+  for (const item of payload.rows) {
+    if (!Array.isArray(item.row) || item.row.length < 8 || item.row.length > 9) {
+      throw new KboPageSchemaError("KBO schedule response row structure changed");
+    }
+    const row = $("<tr></tr>");
+    for (const cell of item.row) {
+      if (typeof cell.Text !== "string") throw new KboPageSchemaError("KBO schedule cell text missing");
+      const td = $("<td></td>").html(cell.Text);
+      if (["day", "time", "play", "relay"].includes(cell.Class)) td.attr("class", cell.Class);
+      row.append(td);
+    }
+    $("tbody").append(row);
+  }
+  return parseKboScheduleMonthPage($.html(), month);
+}
+
 function scoreboardStatus(flagText, inning) {
   const normalized = normalizeStatus(flagText);
   if (normalized !== "UNKNOWN") return normalized;
@@ -264,7 +293,8 @@ export function parseKboScoreboardPage(html, targetDate, options = {}) {
 
   const cards = record.find(".smsScore").toArray();
   if (cards.length === 0) {
-    if (/경기가\s*(?:없|없습니다)|경기\s*일정이\s*없/i.test(clean(record.text()))) {
+    if (/경기가\s*(?:없|없습니다)|경기\s*일정이\s*없/i.test(clean(record.text()))
+      || record.find("#cphContents_cphContents_cphContents_pNoGmae").text().includes("데이터가 존재하지 않습니다")) {
       return { games: [], anomalies: [], pageDate };
     }
     throw new KboPageSchemaError("KBO scoreboard contains no .smsScore cards and no no-game marker");

@@ -11,6 +11,7 @@ export const FARGATE_ROOT = path.resolve(
 export const KBO_ENDPOINTS = Object.freeze({
   schedule: "https://www.koreabaseball.com/Schedule/Schedule.aspx",
   scoreboard: "https://www.koreabaseball.com/Schedule/ScoreBoard.aspx",
+  scheduleData: "https://www.koreabaseball.com/ws/Schedule.asmx/GetScheduleList",
 });
 
 const DURATION_KEYS = new Set([
@@ -37,6 +38,7 @@ const BOOLEAN_ENV = new Set([
 const KNOWN_ENV = new Set([
   "CRAWLER_CONFIG",
   "CRAWLER_PROFILE",
+  "CRAWLER_SCHEDULE_SERIES",
   "CRAWLER_ENABLED",
   "CRAWLER_KILL_SWITCH",
   "CRAWLER_OPERATOR_CONTACT",
@@ -79,12 +81,15 @@ const configSchema = z.object({
   runtime: z.object({
     persistence: z.enum(["memory", "aws"]),
   }).strict(),
+  scheduleTransport: z.enum(["html", "page-ajax"]).default("html"),
+  scheduleSeries: z.enum(["0,9,6", "1", "3,4,5,7"]).default("0,9,6"),
   identity: z.object({
     product: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{2,63}$/),
     version: z.string().min(1).max(32),
     contact: z.string().min(1).max(200),
   }).strict(),
   policy: z.object({
+    accessMode: z.enum(["written-authorization", "operator-requested"]).default("written-authorization"),
     killSwitch: z.boolean(),
     authorizationStatus: z.enum(["unverified", "approved", "revoked"]),
     authorizationEvidence: nullableString,
@@ -262,6 +267,7 @@ function applyEnvironment(config, env) {
   }
 
   const mappings = {
+    CRAWLER_SCHEDULE_SERIES: ["scheduleSeries", String],
     CRAWLER_ENABLED: ["enabled", (value) => parseBoolean("CRAWLER_ENABLED", value)],
     CRAWLER_KILL_SWITCH: ["policy.killSwitch", (value) => parseBoolean("CRAWLER_KILL_SWITCH", value)],
     CRAWLER_OPERATOR_CONTACT: ["identity.contact", String],
@@ -397,6 +403,18 @@ export function evaluateLivePolicy(config, now = new Date()) {
 
   if (!config.enabled) add("CRAWLER_DISABLED", "crawler is disabled");
   if (config.policy.killSwitch) add("KILL_SWITCH_ACTIVE", "external crawler kill switch is active");
+  // An operator-requested run is not evidence of third-party permission.
+  // Keep its opt-in, contact and endpoint checks without inventing approval metadata.
+  if (config.policy.accessMode === "operator-requested") {
+    if (config.policy.authorizationStatus === "revoked") add("AUTHORIZATION_REVOKED", "access was explicitly revoked");
+    if (!validOperatorContact(config.identity.contact) || /\.invalid\b|example\.(?:com|org|net)\b/i.test(config.identity.contact)) {
+      add("OPERATOR_CONTACT_PLACEHOLDER", "operator contact must be reachable before live use");
+    }
+    if (config.endpoints.schedule !== KBO_ENDPOINTS.schedule || config.endpoints.scoreboard !== KBO_ENDPOINTS.scoreboard) {
+      add("ENDPOINT_SCOPE_CHANGED", "KBO page endpoints changed");
+    }
+    return { ok: errors.length === 0, errors };
+  }
   if (config.policy.authorizationStatus !== "approved") {
     add("AUTHORIZATION_NOT_APPROVED", "written authorization is not approved");
   }
