@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { stampPageObservation } from "../src/fargate/source.js";
 import { loadFargateConfig } from "../src/fargate/config.js";
 import {
   KboPageSchemaError,
@@ -96,4 +97,28 @@ test("page/date/schema drift fails closed instead of guessing", async () => {
     () => parseKboScoreboardPage(scoreboardHtml, "2026-08-27"),
     KboPageSchemaError
   );
+});
+
+test("game classification is explicit and missing selectors stay UNKNOWN", async () => {
+  const [html] = await fixtures();
+  assert.equal(parseKboScheduleMonthPage(html,"2026-08").games[0].gameType,"REGULAR");
+  assert.equal(parseKboScheduleMonthPage(html.replace(/<select id="ddlSeries">.*?<\/select>/,""),"2026-08").games[0].gameType,"UNKNOWN");
+  assert.equal(parseKboScheduleMonthPage(html.replace("정규시즌","시범경기"),"2026-08").games[0].gameType,"EXHIBITION");
+  assert.equal(parseKboScheduleMonthPage(html,"2026-08").games[0].gameSequence,null);
+});
+
+test("merged cached scoreboard retains its original observation and schedule owns schedule fields", async () => {
+  const [scheduleHtml,scoreboardHtml] = await fixtures();
+  const schedule = stampPageObservation(parseKboSchedulePage(scheduleHtml,"2026-08-26"),"schedule","2026-08-26T10:15:00Z");
+  const scoreboard = stampPageObservation(parseKboScoreboardPage(scoreboardHtml,"2026-08-26"),"scoreboard","2026-08-26T10:10:00Z");
+  const merged = mergeKboPages(schedule.games,scoreboard.games).games.find(game => game.homeTeam.code === "LG");
+  assert.equal(merged.meta.scheduleObservedAt,"2026-08-26T10:15:00.000Z");
+  assert.equal(merged.meta.resultObservedAt,"2026-08-26T10:10:00.000Z");
+  assert.equal(merged.meta.resultSource,"SCOREBOARD");
+  scoreboard.games[0].status = "UNKNOWN";
+  schedule.games[0].status = "FINISHED";
+  schedule.games[0].score = {home:7,away:5};
+  const final = mergeKboPages(schedule.games,scoreboard.games).games.find(game => game.homeTeam.code === "LG");
+  assert.deepEqual(final.score,{home:7,away:5});
+  assert.equal(final.meta.resultSource,"SCHEDULE");
 });

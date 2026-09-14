@@ -105,3 +105,29 @@ test("EventBridge manager creates a one-time ECS task with safe fixed parameters
   assert.equal((await unchanged.upsert("2026-08-26", "2026-08-26T08:30:00.000Z")).action, "unchanged");
   assert.deepEqual(unchangedCommands.map((entry) => entry.constructor.name), ["GetScheduleCommand"]);
 });
+
+test("field observation refresh alone does not publish, but A to B to A does", async () => {
+  const config = await awsConfig();
+  const sent = [];
+  const publisher = new SnapshotPublisher(config,new MemoryStateStore(), {
+    sqsClient: {send: async command => { sent.push(command.input); return {MessageId:"message"}; }},
+  });
+  const snapshot = {
+    schemaVersion:1,source:"kbo-pages",mode:"game-window",date:"2026-08-26",
+    observedAt:"2026-08-26T10:00:00Z",anomalies:[],
+    games:[{score:{home:5,away:3},meta:{scheduleObservedAt:"2026-08-26T10:00:00Z",resultObservedAt:"2026-08-26T10:00:00Z",resultSource:"SCOREBOARD"}}],
+  };
+  await publisher.publishIfChanged(snapshot);
+  const refreshed = structuredClone(snapshot);
+  refreshed.observedAt = "2026-08-26T10:01:00Z";
+  refreshed.games[0].meta.resultObservedAt = refreshed.observedAt;
+  refreshed.games[0].meta.scheduleObservedAt = refreshed.observedAt;
+  assert.equal((await publisher.publishIfChanged(refreshed)).changed,false);
+  refreshed.games[0].score.home = 4;
+  assert.equal((await publisher.publishIfChanged(refreshed)).changed,true);
+  refreshed.games[0].score.home = 5;
+  refreshed.observedAt = "2026-08-26T10:02:00Z";
+  refreshed.games[0].meta.resultObservedAt = refreshed.observedAt;
+  assert.equal((await publisher.publishIfChanged(refreshed)).changed,true);
+  assert.equal(sent.length,3);
+});

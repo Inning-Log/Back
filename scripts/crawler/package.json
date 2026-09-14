@@ -17,7 +17,8 @@
     "fargate:window": "node src/fargate/main.js --run-game-window",
     "fargate:config:check": "node src/fargate/main.js --check-config",
     "fargate:policy:check": "node src/fargate/main.js --check-policy",
-    "test": "node --test"
+    "test": "node --test",
+    "fixture:backend": "node scripts/export-backend-fixtures.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1118.0",

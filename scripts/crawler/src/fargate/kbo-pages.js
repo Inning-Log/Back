@@ -25,6 +25,17 @@ function clean(value) {
   return String(value ?? "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function selectedGameType($) {
+  const labels = $("select option:selected").toArray().map((option) => clean($(option).text()).replace(/\s+/g, ""));
+  const types = new Map([
+    ["정규시즌", "REGULAR"], ["KBO정규시즌", "REGULAR"], ["시범경기", "EXHIBITION"],
+    ["와일드카드", "WILDCARD"], ["와일드카드결정전", "WILDCARD"],
+    ["준플레이오프", "SEMI_PLAYOFF"], ["플레이오프", "PLAYOFF"], ["한국시리즈", "KOREAN_SERIES"],
+  ]);
+  const matches = [...new Set(labels.map((label) => types.get(label)).filter(Boolean))];
+  return matches.length === 1 ? matches[0] : "UNKNOWN";
+}
+
 function strictTeam(value, context) {
   const team = normalizeTeam(value);
   if (!team.code || !KBO_TEAM_CODES.has(team.code)) {
@@ -186,7 +197,7 @@ export function parseKboScheduleMonthPage(html, targetMonth, options = {}) {
         events: [],
         meta: { provenance: [{ provider: "kbo", page: "schedule", row: rowIndex }] },
       }, { source: "kbo" });
-      games.push(validateIdentity(game, `schedule row ${rowIndex}`));
+      games.push(validateIdentity({ ...game, seasonYear: Number(year), gameType: selectedGameType($), gameSequence: null }, `schedule row ${rowIndex}`));
     } catch (error) {
       anomalies.push({
         type: "INVALID_SCHEDULE_ROW",
@@ -337,27 +348,27 @@ function identityKey(game) {
 function combine(schedule, scoreboard) {
   const scheduleOverridesPregame = ["CANCELLED", "POSTPONED", "DELAYED", "SUSPENDED"].includes(schedule.status)
     && ["UNKNOWN", "SCHEDULED"].includes(scoreboard.status);
+  const resultGame = scheduleOverridesPregame || scoreboard.status === "UNKNOWN" ? schedule : scoreboard;
   return validateIdentity({
     ...schedule,
     externalId: {
       kbo: scoreboard.externalId?.kbo ?? schedule.externalId?.kbo ?? null,
       naver: null,
     },
-    scheduledAt: scoreboard.scheduledAt ?? schedule.scheduledAt,
-    stadium: scoreboard.stadium ?? schedule.stadium,
-    status: scheduleOverridesPregame || scoreboard.status === "UNKNOWN"
-      ? schedule.status
-      : scoreboard.status,
-    statusText: scheduleOverridesPregame
-      ? schedule.statusText
-      : (scoreboard.statusText ?? schedule.statusText),
-    score: scoreboard.score,
-    inning: scoreboard.inning,
-    half: scoreboard.half,
+    scheduledAt: schedule.scheduledAt,
+    stadium: schedule.stadium,
+    status: resultGame.status,
+    statusText: resultGame.statusText,
+    score: resultGame.score,
+    inning: resultGame.inning,
+    half: resultGame.half,
     startedAt: scoreboard.startedAt ?? schedule.startedAt,
     endedAt: scoreboard.endedAt ?? schedule.endedAt,
     events: [],
     meta: {
+      scheduleObservedAt: schedule.meta?.scheduleObservedAt,
+      resultObservedAt: resultGame.meta?.resultObservedAt,
+      resultSource: resultGame.meta?.resultSource,
       provenance: [
         ...(schedule.meta?.provenance ?? []),
         ...(scoreboard.meta?.provenance ?? []),

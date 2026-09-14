@@ -1,6 +1,7 @@
 package com.inninglog.domain.user.service;
 
 import com.inninglog.domain.auth.repository.AuthRefreshTokenRepository;
+import com.inninglog.domain.game.repository.GameRepository;
 import com.inninglog.domain.friendship.repository.FriendshipRepository;
 import com.inninglog.domain.notification.repository.UserPushRegistrationRepository;
 import com.inninglog.domain.oauth.repository.OAuthAccountRepository;
@@ -21,6 +22,7 @@ public class AccountDeletionService {
     private final UserPushRegistrationRepository pushRegistrationRepository;
     private final FriendshipRepository friendshipRepository;
     private final Clock clock;
+    private final GameRepository gameRepository;
 
     public AccountDeletionService(
             UserRepository userRepository,
@@ -28,7 +30,8 @@ public class AccountDeletionService {
             AuthRefreshTokenRepository refreshTokenRepository,
             UserPushRegistrationRepository pushRegistrationRepository,
             FriendshipRepository friendshipRepository,
-            Clock clock
+            Clock clock,
+            GameRepository gameRepository
     ) {
         this.userRepository = userRepository;
         this.oAuthAccountRepository = oAuthAccountRepository;
@@ -36,6 +39,7 @@ public class AccountDeletionService {
         this.pushRegistrationRepository = pushRegistrationRepository;
         this.friendshipRepository = friendshipRepository;
         this.clock = clock;
+        this.gameRepository = gameRepository;
     }
 
     @Transactional
@@ -46,6 +50,7 @@ public class AccountDeletionService {
         refreshTokenRepository.revokeAllActiveByUserId(user.getId(), now);
         pushRegistrationRepository.disableAllByUserId(user.getId(), now);
         friendshipRepository.deleteAllByUserId(user.getId());
+        gameRepository.deleteUserLogs(user.getId(), now);
         if (!user.isDeleted()) {
             oAuthAccountRepository.findAllByUserId(user.getId())
                     .forEach(account -> account.anonymizeEmail(user.getId()));

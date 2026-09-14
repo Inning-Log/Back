@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "type": "KBO_SCHEDULE_MONTH_SNAPSHOT",
+  "idempotencyKey": "2026-08-01:schedule-month:04fafabb8d18d23599df652a719edf326af90d75adcf61ec92fc2aa342f3df10",
+  "occurredAt": "2026-09-13T15:03:00.000Z",
+  "payload": {
+    "schemaVersion": 1,
+    "source": "fixture-kbo-pages",
+    "mode": "schedule-month",
+    "date": "2026-08-01",
+    "month": "2026-08",
+    "observedAt": "2026-09-13T15:02:00.000Z",
+    "games": [
+      {
+        "date": "2026-08-25",
+        "gameNumber": null,
+        "source": {
+          "kbo": true,
+          "naver": false
+        },
+        "externalId": {
+          "kbo": "20260825HTKT0",
+          "naver": null
+        },
+        "scheduledAt": "2026-08-25T09:30:00.000Z",
+        "startedAt": null,
+        "endedAt": null,
+        "homeTeam": {
+          "code": "KT",
+          "name": "KT"
+        },
+        "awayTeam": {
+          "code": "KIA",
+          "name": "KIA"
+        },
+        "stadium": "수원",
+        "status": "FINISHED",
+        "statusText": "FINISHED",
+        "score": {
+          "home": 7,
+          "away": 4
+        },
+        "inning": null,
+        "half": null,
+        "events": [],
+        "meta": {
+          "provenance": [
+            {
+              "provider": "kbo",
+              "page": "schedule",
+              "row": 0
+            }
+          ],
+          "scheduleObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultSource": "SCHEDULE"
+        },
+        "seasonYear": 2026,
+        "gameType": "REGULAR",
+        "gameSequence": null
+      },
+      {
+        "date": "2026-08-26",
+        "gameNumber": null,
+        "source": {
+          "kbo": true,
+          "naver": false
+        },
+        "externalId": {
+          "kbo": "20260826NCLG0",
+          "naver": null
+        },
+        "scheduledAt": "2026-08-26T09:30:00.000Z",
+        "startedAt": null,
+        "endedAt": null,
+        "homeTeam": {
+          "code": "LG",
+          "name": "LG"
+        },
+        "awayTeam": {
+          "code": "NC",
+          "name": "NC"
+        },
+        "stadium": "잠실",
+        "status": "SCHEDULED",
+        "statusText": "경기예정",
+        "score": {
+          "home": null,
+          "away": null
+        },
+        "inning": null,
+        "half": null,
+        "events": [],
+        "meta": {
+          "provenance": [
+            {
+              "provider": "kbo",
+              "page": "schedule",
+              "row": 1
+            }
+          ],
+          "scheduleObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultSource": "SCHEDULE"
+        },
+        "seasonYear": 2026,
+        "gameType": "REGULAR",
+        "gameSequence": null
+      },
+      {
+        "date": "2026-08-26",
+        "gameNumber": null,
+        "source": {
+          "kbo": true,
+          "naver": false
+        },
+        "externalId": {
+          "kbo": null,
+          "naver": null
+        },
+        "scheduledAt": "2026-08-26T09:30:00.000Z",
+        "startedAt": null,
+        "endedAt": null,
+        "homeTeam": {
+          "code": "SSG",
+          "name": "SSG"
+        },
+        "awayTeam": {
+          "code": "HH",
+          "name": "한화"
+        },
+        "stadium": "문학",
+        "status": "CANCELLED",
+        "statusText": "우천취소",
+        "score": {
+          "home": null,
+          "away": null
+        },
+        "inning": null,
+        "half": null,
+        "events": [],
+        "meta": {
+          "provenance": [
+            {
+              "provider": "kbo",
+              "page": "schedule",
+              "row": 2
+            }
+          ],
+          "scheduleObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultSource": "SCHEDULE"
+        },
+        "seasonYear": 2026,
+        "gameType": "REGULAR",
+        "gameSequence": null
+      },
+      {
+        "date": "2026-08-27",
+        "gameNumber": null,
+        "source": {
+          "kbo": true,
+          "naver": false
+        },
+        "externalId": {
+          "kbo": null,
+          "naver": null
+        },
+        "scheduledAt": "2026-08-27T09:30:00.000Z",
+        "startedAt": null,
+        "endedAt": null,
+        "homeTeam": {
+          "code": "KIA",
+          "name": "KIA"
+        },
+        "awayTeam": {
+          "code": "LT",
+          "name": "롯데"
+        },
+        "stadium": "광주",
+        "status": "SCHEDULED",
+        "statusText": "경기예정",
+        "score": {
+          "home": null,
+          "away": null
+        },
+        "inning": null,
+        "half": null,
+        "events": [],
+        "meta": {
+          "provenance": [
+            {
+              "provider": "kbo",
+              "page": "schedule",
+              "row": 3
+            }
+          ],
+          "scheduleObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultSource": "SCHEDULE"
+        },
+        "seasonYear": 2026,
+        "gameType": "REGULAR",
+        "gameSequence": null
+      }
+    ],
+    "anomalies": [],
+    "requestMetrics": {
+      "logicalRequests": 0,
+      "attempts": 0
+    },
+    "contentFingerprint": "04fafabb8d18d23599df652a719edf326af90d75adcf61ec92fc2aa342f3df10"
+  }
+}

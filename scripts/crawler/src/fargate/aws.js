@@ -203,6 +203,12 @@ function snapshotFingerprint(snapshot) {
   delete content.observedAt;
   delete content.requestMetrics;
   delete content.contentFingerprint;
+  for (const game of content.games ?? []) {
+    if (game.meta) {
+      delete game.meta.scheduleObservedAt;
+      delete game.meta.resultObservedAt;
+    }
+  }
   return contentFingerprint(stableValue(content));
 }
 

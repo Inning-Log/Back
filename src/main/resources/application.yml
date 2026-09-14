@@ -34,6 +34,13 @@ springdoc:
     tags-sorter: alpha
 
 app:
+  games:
+    allow-fixtures: ${GAME_IMPORT_ALLOW_FIXTURES:false}
+    sqs:
+      enabled: ${GAME_SQS_ENABLED:false}
+      region: ${GAME_SQS_REGION:ap-northeast-2}
+      queue-url: ${GAME_SQS_QUEUE_URL:}
+      poll-delay: ${GAME_SQS_POLL_DELAY:2s}
   firebase:
     enabled: ${FIREBASE_ENABLED:false}
     project-id: ${FIREBASE_PROJECT_ID:}

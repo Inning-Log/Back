@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "type": "KBO_GAME_SNAPSHOT",
+  "idempotencyKey": "2026-08-26:game-window:98c61f620931e92c8b789c01bd5daa851e3aa9bfd8ff8e3c9ba8292555dd9440",
+  "occurredAt": "2026-09-13T15:03:00.000Z",
+  "payload": {
+    "schemaVersion": 1,
+    "source": "fixture-kbo-pages",
+    "mode": "game-window",
+    "date": "2026-08-26",
+    "observedAt": "2026-09-13T15:03:00.000Z",
+    "games": [
+      {
+        "date": "2026-08-26",
+        "gameNumber": null,
+        "source": {
+          "kbo": true,
+          "naver": false
+        },
+        "externalId": {
+          "kbo": null,
+          "naver": null
+        },
+        "scheduledAt": "2026-08-26T09:30:00.000Z",
+        "startedAt": null,
+        "endedAt": null,
+        "homeTeam": {
+          "code": "SSG",
+          "name": "SSG"
+        },
+        "awayTeam": {
+          "code": "HH",
+          "name": "한화"
+        },
+        "stadium": "문학",
+        "status": "CANCELLED",
+        "statusText": "우천취소",
+        "score": {
+          "home": null,
+          "away": null
+        },
+        "inning": null,
+        "half": null,
+        "events": [],
+        "meta": {
+          "provenance": [
+            {
+              "provider": "kbo",
+              "page": "schedule",
+              "row": 2
+            }
+          ],
+          "scheduleObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultSource": "SCHEDULE"
+        },
+        "seasonYear": 2026,
+        "gameType": "REGULAR",
+        "gameSequence": null
+      },
+      {
+        "date": "2026-08-26",
+        "gameNumber": null,
+        "source": {
+          "kbo": true,
+          "naver": false
+        },
+        "externalId": {
+          "kbo": "20260826NCLG0",
+          "naver": null
+        },
+        "scheduledAt": "2026-08-26T09:30:00.000Z",
+        "startedAt": null,
+        "endedAt": null,
+        "homeTeam": {
+          "code": "LG",
+          "name": "LG"
+        },
+        "awayTeam": {
+          "code": "NC",
+          "name": "NC"
+        },
+        "stadium": "잠실",
+        "status": "LIVE",
+        "statusText": "6회말",
+        "score": {
+          "home": 5,
+          "away": 0
+        },
+        "inning": 6,
+        "half": "BOTTOM",
+        "events": [],
+        "meta": {
+          "scheduleObservedAt": "2026-09-13T15:02:00.000Z",
+          "resultObservedAt": "2026-09-13T15:03:00.000Z",
+          "resultSource": "SCOREBOARD",
+          "provenance": [
+            {
+              "provider": "kbo",
+              "page": "schedule",
+              "row": 1
+            },
+            {
+              "provider": "kbo",
+              "page": "scoreboard",
+              "card": 0
+            }
+          ]
+        },
+        "seasonYear": 2026,
+        "gameType": "REGULAR",
+        "gameSequence": null
+      }
+    ],
+    "anomalies": [],
+    "requestMetrics": {
+      "logicalRequests": 0,
+      "attempts": 0
+    },
+    "contentFingerprint": "98c61f620931e92c8b789c01bd5daa851e3aa9bfd8ff8e3c9ba8292555dd9440"
+  }
+}

@@ -1,6 +1,17 @@
 # Back
 Inning Log backend repository
 
+## Home, games, and viewing logs
+
+Authenticated users can query `GET /api/home/calendar`, `GET /api/home/win-rate`,
+and `GET /api/games`, and manage their stadium/home viewing records through
+`/api/user-game-logs`. The win rate uses the current KST regular season and the
+team selected for each viewing. See [API contract and ingestion setup](docs/home-game-api.md).
+
+Game snapshots are stored in PostgreSQL by an optional SQS consumer, disabled by
+default. Apply the matching crawler changes when enabling ingestion. Video
+availability is reported as `UNAVAILABLE` until the recording domain is connected.
+
 ## Local setup
 
 ```bash

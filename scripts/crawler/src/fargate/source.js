@@ -74,27 +74,43 @@ function retryAfterMs(value, nowMs) {
   return Number.isFinite(timestamp) ? Math.max(0, timestamp - nowMs) : 0;
 }
 
+export function stampPageObservation(result, page, observedAt) {
+  const timestamp = new Date(observedAt).toISOString();
+  return {
+    ...result,
+    games: result.games.map((game) => ({
+      ...game,
+      meta: {
+        ...game.meta,
+        scheduleObservedAt: timestamp,
+        resultObservedAt: timestamp,
+        resultSource: page === "scoreboard" ? "SCOREBOARD" : "SCHEDULE",
+      },
+    })),
+  };
+}
+
 export function createKboPageSource(config, dependencies = {}) {
+  const now = dependencies.now ?? (() => Date.now());
   if (config.provider === "fixture") {
     return {
       kind: "fixture",
       async fetchScheduleMonth(dateKey) {
         const html = await readFile(config.fixture.scheduleFile, "utf8");
-        return parseKboScheduleMonthPage(html, dateKey.slice(0, 7));
+        return stampPageObservation(parseKboScheduleMonthPage(html, dateKey.slice(0, 7)), "schedule", now());
       },
       async fetchSchedule(dateKey) {
         const html = await readFile(config.fixture.scheduleFile, "utf8");
-        return parseKboSchedulePage(html, dateKey);
+        return stampPageObservation(parseKboSchedulePage(html, dateKey), "schedule", now());
       },
       async fetchScoreboard(dateKey) {
         const html = await readFile(config.fixture.scoreboardFile, "utf8");
-        return parseKboScoreboardPage(html, dateKey);
+        return stampPageObservation(parseKboScoreboardPage(html, dateKey), "scoreboard", now());
       },
       getMetrics: () => ({ logicalRequests: 0, attempts: 0 }),
     };
   }
 
-  const now = dependencies.now ?? (() => Date.now());
   const sleep = dependencies.sleep ?? abortableSleep;
   const random = dependencies.random ?? Math.random;
   const state = dependencies.state;
@@ -236,7 +252,7 @@ export function createKboPageSource(config, dependencies = {}) {
     async fetchScheduleMonth(dateKey, options = {}) {
       const html = await request("schedule", options.signal);
       try {
-        return parseKboScheduleMonthPage(html, dateKey.slice(0, 7));
+        return stampPageObservation(parseKboScheduleMonthPage(html, dateKey.slice(0, 7)), "schedule", now());
       } catch (error) {
         await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
         throw error;
@@ -245,7 +261,7 @@ export function createKboPageSource(config, dependencies = {}) {
     async fetchSchedule(dateKey, options = {}) {
       const html = await request("schedule", options.signal);
       try {
-        return parseKboSchedulePage(html, dateKey);
+        return stampPageObservation(parseKboSchedulePage(html, dateKey), "schedule", now());
       } catch (error) {
         await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
         throw error;
@@ -254,7 +270,7 @@ export function createKboPageSource(config, dependencies = {}) {
     async fetchScoreboard(dateKey, options = {}) {
       const html = await request("scoreboard", options.signal);
       try {
-        return parseKboScoreboardPage(html, dateKey);
+        return stampPageObservation(parseKboScoreboardPage(html, dateKey), "scoreboard", now());
       } catch (error) {
         await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
         throw error;
