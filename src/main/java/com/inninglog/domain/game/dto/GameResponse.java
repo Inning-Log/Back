@@ -8,12 +8,17 @@ public record GameResponse(
         long gameId, int seasonYear, GameType gameType, LocalDate date, Integer gameSequence,
         Instant scheduledAt, GameStatus status, Game.Team homeTeam, Game.Team awayTeam,
         String stadiumName, Score score, Game.Team displayTeam, Game.Team opponentTeam,
-        GameResult displayResult, Viewing myViewing, String recordingState, Instant resultObservedAt
+        GameResult displayResult, Viewing myViewing, String recordingState, Instant resultObservedAt,
+        long recordCount, boolean hasRecords
 ) {
     public record Score(Integer home, Integer away) {}
     public record Viewing(long id, ViewingType viewingType, long cheeringTeamId) {}
 
     public static GameResponse from(Game game, UserGameLog log, Long favoriteTeamId) {
+        return from(game, log, favoriteTeamId, 0);
+    }
+
+    public static GameResponse from(Game game, UserGameLog log, Long favoriteTeamId, long recordCount) {
         Long displayId = favoriteTeamId != null && game.includesTeam(favoriteTeamId)
                 ? favoriteTeamId : log == null ? null : log.cheeringTeamId();
         Game.Team display = displayId == null ? null : game.homeTeam().id() == displayId ? game.homeTeam() : game.awayTeam();
@@ -23,6 +28,6 @@ public record GameResponse(
                 new Score(game.homeScore(), game.awayScore()), display, opponent,
                 display == null ? GameResult.UNKNOWN : game.resultFor(display.id()),
                 log == null ? null : new Viewing(log.id(), log.viewingType(), log.cheeringTeamId()),
-                log == null ? "NONE" : "UNAVAILABLE", game.resultObservedAt());
+                log == null ? "NONE" : "UNAVAILABLE", game.resultObservedAt(), recordCount, recordCount > 0);
     }
 }

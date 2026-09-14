@@ -36,8 +36,9 @@ public class HomeService {
         long teamId = user.getFavoriteTeam().getId();
         Map<Long, UserGameLog> logs = games.logsForRange(user.getId(), first, until).stream()
                 .collect(Collectors.toMap(UserGameLog::gameId, Function.identity()));
+        var recordCounts = games.recordCountsForRange(user.getId(), first, until);
         Map<LocalDate, List<GameResponse>> byDate = games.forMonth(user.getId(), teamId, first, until).stream()
-                .map(game -> GameResponse.from(game, logs.get(game.id()), teamId))
+                .map(game -> GameResponse.from(game, logs.get(game.id()), teamId, recordCounts.getOrDefault(game.id(), 0L)))
                 .collect(Collectors.groupingBy(GameResponse::date));
         return new CalendarResponse(year, month, "Asia/Seoul", today(), teamId,
                 games.syncState("MONTH:" + requested),

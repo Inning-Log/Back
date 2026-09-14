@@ -115,6 +115,14 @@ JWT_SECRET=replace-with-a-strong-secret-at-least-32-bytes
 For Google Cloud Console, use the minimum login scopes: `openid`, `profile`,
 and `email`. Store the Google `sub` value as the provider user identifier.
 
+## Timeline and inning records
+
+Game-specific timelines use `GET /api/timelines/me?gameId=123` and
+`GET /api/timelines/{userId}?gameId=123`. Accepted friends may read records;
+only the owner can create, edit, or delete them. Multiple records in one inning
+are supported. See [Timeline API and frontend routing contract](docs/timeline-api.md)
+for record endpoints, pagination, viewing prerequisites, and video integration limits.
+
 ## Push notifications
 
 FCM delivery is disabled by default, so local development and tests do not need

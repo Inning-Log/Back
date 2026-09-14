@@ -63,6 +63,7 @@ Swagger `/swagger-ui.html`, OpenAPI `/v3/api-docs`에서도 확인할 수 있다
 | `displayResult` | 표시 기준팀 관점의 경기 결과 |
 | `myViewing` | `{id, viewingType, cheeringTeamId}` 또는 null |
 | `recordingState` | 현재 `NONE` 또는 `UNAVAILABLE`. 영상 기능 연동 후 READY 추가 예정 |
+| `recordCount`, `hasRecords` | 본인의 활성 이닝 기록 개수와 존재 여부. 타임라인 기록 기준이며 영상 준비 여부가 아님 |
 | `resultObservedAt` | 현재 결과 필드의 실제 원본 관측 시각 |
 
 현재 최애팀이 참가하는 경기는 그 팀을 표시 기준으로 사용한다. 현재 최애팀 경기가 아닌 내 기록은 당시 응원팀을 기준으로 표시한다. 개인 승률은 항상 관람 기록의 `cheeringTeamId`를 사용한다.
@@ -135,6 +136,8 @@ Swagger `/swagger-ui.html`, OpenAPI `/v3/api-docs`에서도 확인할 수 있다
 삭제는 soft delete이며 반복 DELETE도 204다. 같은 날 재등록하면 기존 ID를 복원한다. 본인 소유가 아닌 기록은 조회/수정/삭제 모두 404다. 탈퇴 시 활성 관람 기록도 soft delete한다.
 
 홈 진입 시 달력·승률을 병렬 조회하고, 월 이동에는 달력만 다시 조회한다. 관람 등록/정정/삭제 이후 관련 달력과 승률을 다시 조회한다. 서버는 승률을 저장하거나 별도 캐싱하지 않는다.
+
+이닝 기록 생성/삭제 후에도 해당 달력·날짜별 경기를 다시 조회한다. `hasRecords`인 경기의 gameId로 [타임라인 API](timeline-api.md)를 호출한다. 관람 기록 삭제는 하위 이닝 기록도 소프트 삭제하며, 관람 복원 시 하위 기록은 복원하지 않는다.
 
 ## 오류
 

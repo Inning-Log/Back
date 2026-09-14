@@ -13,6 +13,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
+import java.util.HashMap;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -108,11 +110,28 @@ public class GameRepository {
     }
 
     public void deleteLog(long id, Instant now) {
+        jdbc.update("update inning_records set deleted_at = ?, updated_at = ? where user_game_log_id = ? and deleted_at is null",
+                timestamp(now), timestamp(now), id);
         jdbc.update("update user_game_logs set deleted_at = ?, updated_at = ? where id = ? and deleted_at is null", timestamp(now), timestamp(now), id);
     }
 
     public void deleteUserLogs(long userId, Instant now) {
+        jdbc.update("""
+                update inning_records set deleted_at = ?, updated_at = ?
+                 where deleted_at is null and user_game_log_id in (select id from user_game_logs where user_id = ?)
+                """, timestamp(now), timestamp(now), userId);
         jdbc.update("update user_game_logs set deleted_at = ?, updated_at = ? where user_id = ? and deleted_at is null", timestamp(now), timestamp(now), userId);
+    }
+
+    public Map<Long, Long> recordCountsForRange(long userId, LocalDate from, LocalDate until) {
+        Map<Long, Long> result = new HashMap<>();
+        jdbc.query("""
+                select l.game_id, count(r.id) total from user_game_logs l
+                join games g on g.id = l.game_id join inning_records r on r.user_game_log_id = l.id
+                where l.user_id = ? and l.deleted_at is null and r.deleted_at is null
+                  and g.game_date >= ? and g.game_date < ? group by l.game_id
+                """, rs -> { result.put(rs.getLong("game_id"), rs.getLong("total")); }, userId, from, until);
+        return result;
     }
 
     public SyncState syncState(String key) {

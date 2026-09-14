@@ -33,8 +33,10 @@ public class GameService {
         var daily = games.syncState("DAY:" + date);
         var monthly = games.syncState("MONTH:" + YearMonth.from(date));
         var state = "NOT_IMPORTED".equals(daily.state()) ? monthly : daily;
+        var recordCounts = games.recordCountsForRange(user.getId(), date, date.plusDays(1));
         return new GameListResponse(date, today(), state, games.forDate(date).stream()
-                .map(game -> GameResponse.from(game, logs.get(game.id()), user.getFavoriteTeam().getId())).toList());
+                .map(game -> GameResponse.from(game, logs.get(game.id()), user.getFavoriteTeam().getId(),
+                        recordCounts.getOrDefault(game.id(), 0L))).toList());
     }
 
     @Transactional

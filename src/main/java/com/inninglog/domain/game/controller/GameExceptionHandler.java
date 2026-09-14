@@ -2,6 +2,8 @@ package com.inninglog.domain.game.controller;
 
 import com.inninglog.domain.game.exception.GameException;
 import com.inninglog.domain.home.controller.HomeController;
+import com.inninglog.domain.timeline.controller.InningRecordController;
+import com.inninglog.domain.timeline.controller.TimelineController;
 import jakarta.validation.ConstraintViolationException;
 import java.time.DateTimeException;
 import java.time.Instant;
@@ -14,7 +16,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-@RestControllerAdvice(assignableTypes = {GameController.class, UserGameLogController.class, HomeController.class})
+@RestControllerAdvice(assignableTypes = {GameController.class, UserGameLogController.class, HomeController.class,
+        TimelineController.class, InningRecordController.class})
 public class GameExceptionHandler {
     @ExceptionHandler(GameException.class)
     public ResponseEntity<GameErrorResponse> domain(GameException error) {
