@@ -1,8 +1,8 @@
 # Inning Log 경기 수집기
 
-정책 검사를 통과한 범위에서만 경기 데이터를 정규화하는 저부하 수집기다. 기본값은 외부 네트워크를 전혀 사용하지 않는 **합성 fixture 프로필**이며, KBO·NAVER 실 서버 수집은 서면 허가와 범위 증빙 없이는 차단한다.
+정책 검사를 통과한 범위에서만 경기 데이터를 정규화하는 저부하 수집기다. 기본값은 외부 네트워크를 전혀 사용하지 않는 **합성 fixture 프로필**이며, 실 서버 수집은 서면 허가와 범위 증빙 없이는 차단한다. 제품의 확정 대상은 KBO의 경기일정·결과와 스코어보드 두 페이지뿐이고 NAVER는 운영 범위에서 제외한다.
 
-정책 판단은 [POLICY.md](./POLICY.md), 실행·장애·삭제 절차는 [OPERATIONS.md](./OPERATIONS.md)를 먼저 읽는다.
+수집 URL·필드·주기는 [TARGET_SCOPE.md](./TARGET_SCOPE.md), 정책 판단은 [POLICY.md](./POLICY.md), 실행·장애·삭제 절차는 [OPERATIONS.md](./OPERATIONS.md)를 먼저 읽는다. AWS 배포는 [AWS_FARGATE_SETUP.md](./AWS_FARGATE_SETUP.md)를 따른다.
 
 ## 빠른 시작
 
@@ -10,7 +10,7 @@
 
 ```bash
 cd Inning-Log/scripts/crawler
-npm install
+npm ci
 npm run config:check -- --profile fixture
 npm run crawl -- --profile fixture --dry-run
 npm run crawl -- --profile fixture
@@ -25,12 +25,25 @@ npm run config:print -- --profile fixture
 
 `fixture`는 합성 입력만 읽으며 네트워크 요청을 만들지 않는다. 개발·테스트·CI·UI 연동에서는 이 프로필을 사용한다.
 
+AWS Fargate용 KBO 두 페이지 전용 경로는 별도 CLI로 격리되어 있다.
+
+```bash
+npm run fargate:config:check -- --profile fixture
+npm run fargate:config:check -- --profile fixture-aws
+npm run fargate:policy:check -- --profile kbo-locked
+npm run fargate:plan -- --profile fixture --dry-run
+```
+
+`fixture-aws`는 번들된 KBO 모양 HTML만 읽으면서 DynamoDB, SQS와 EventBridge Scheduler는 실제 AWS adapter를 사용하는 통합 시험 프로필이다. 외부 요청 없이 AWS 전체 경로와 월간 일정 저장을 확인할 때만 사용한다. `kbo-locked`는 코드가 완성되어 있어도 기본 `enabled: false`, kill switch 활성, 승인 `unverified`라 정책 검사가 의도적으로 실패한다. `--check-config`, `--check-policy`, `--dry-run`은 KBO나 AWS를 호출하지 않는다. 실제 Fargate 실행은 `src/fargate/main.js`만 사용하며 URL은 다음 두 문자열로 코드에 고정되어 환경변수로 바꿀 수 없다.
+
+- `https://www.koreabaseball.com/Schedule/Schedule.aspx`
+- `https://www.koreabaseball.com/Schedule/ScoreBoard.aspx`
+
 ## 안전 정책 요약
 
 - KBO robots.txt는 2026-08-25 확인 기준 전체 자동 탐색을 거부한다.
 - KBO 이용약관 제14조는 사전 서면 동의 또는 공식 API 없이 대량·반복 자동 수집을 금지하고 재판매·재배포·타 플랫폼 연동·2차 가공을 제한한다.
-- NAVER 법적 고지와 이용약관은 명시적 허용, 정식 API 또는 가이드·robots가 허용한 범위를 제외한 자동 접속·수집 및 기술적 조치 우회를 금지한다.
-- `api-gw.sports.naver.com`에서 URL이 관찰되거나 200·404가 반환되어도 사용 허가가 되지 않는다.
+- NAVER는 제품 범위에서 제외하며 운영 profile, 네트워크 allowlist와 AWS 배포에 포함하지 않는다.
 - 학생·비영리 프로젝트도 위 조건의 면제가 아니다.
 
 따라서 실제 네트워크 프로필은 **서면 허가 + 정확한 범위 증빙 + 최신 정책·robots 검증 + 정책 검사 통과** 전에는 실행하지 않는다.
@@ -38,13 +51,12 @@ npm run config:print -- --profile fixture
 실 제공처 정책 게이트는 최소한 다음을 확인한다.
 
 - 전역 실행이 활성화되고 kill switch가 꺼져 있으며 HTTPS·fail-closed가 유지되는가
-- 선택한 제공처만 활성화되어 있는가
+- KBO 하나만 선택되어 있고 허용 경로가 `/Schedule/Schedule.aspx`, `/Schedule/ScoreBoard.aspx` 두 개로 고정되어 있는가
 - 승인이 `approved`이고, 서면 증빙 식별자·최근 검토 시각·미래의 명시적 만료 시각이 있는가
-- 일정에는 `schedule`, NAVER 상세에는 `relay`와 `record` scope가 승인되어 있는가
-- relay 설명 원문을 포함한다면 별도의 `relay-text` scope가 승인되어 있는가
-- KBO의 전체 차단과 NAVER API host의 허용 robots 규칙 부재를 예외로 할 수 있는 서면 범위 및 `robots-disallow-override` scope가 있는가
-- 미문서 endpoint를 쓸 경우 전역 허용과 제공처별 서면 승인이 모두 있는가
-- 식별 가능한 User-Agent 연락처, host allowlist와 실행 시점 robots 검사가 유효한가
+- 일정 페이지에는 `schedule-page`, 스코어보드에는 `scoreboard-page` scope가 승인되어 있는가
+- KBO의 전체 robots 차단에서 두 경로를 예외로 할 수 있는 서면 범위 및 `robots-disallow-override` scope가 있는가
+- 게임센터·문자중계·내부 ASMX/JSON endpoint가 요청 목록에 섞이지 않았는가
+- 식별 가능한 User-Agent 연락처, 고정 host/path와 7일 이내 robots 재검토·서면 예외 기록이 유효한가
 
 설정값만 임의로 `true`로 바꾸는 것은 증빙이 아니며, 검사 통과를 위해 승인 상태를 꾸며서는 안 된다.
 
@@ -53,8 +65,9 @@ npm run config:print -- --profile fixture
 ```text
 scripts/crawler/
 ├─ config/
-│  └─ crawler.yml       공용 기본값과 fixture/safe 프로필
-├─ fixtures/            네트워크 없는 합성 입력
+│  ├─ crawler.yml       과거 범용 CLI와 회귀 테스트 설정
+│  └─ fargate.yml       KBO page-only Fargate 설정
+├─ fixtures/            네트워크 없는 합성 입력과 KBO DOM fixture
 ├─ src/
 │  ├─ crawler.js        CLI와 실행 오케스트레이션
 │  ├─ config.js         YAML·환경변수·CLI 설정 로더와 검증
@@ -62,10 +75,20 @@ scripts/crawler/
 │  ├─ http.js           호스트 제한, 직렬화, 재시도와 회로 차단
 │  ├─ providers/        허가된 입력 또는 fixture 어댑터
 │  ├─ domain.js         제공처 독립 경기 정규형
-│  ├─ merge.js          KBO/NAVER 보수적 매칭과 병합
+│  ├─ merge.js          과거 다중 제공처 검토용 병합 계층
 │  ├─ scheduler.js      상태 기반 적응형 폴링 판단
-│  └─ storage.js        변경 감지, 원자적 저장과 실행 잠금
+│  ├─ storage.js        변경 감지, 원자적 저장과 실행 잠금
+│  └─ fargate/
+│     ├─ main.js        plan-day/run-game-window 전용 CLI
+│     ├─ config.js      고정 URL, 환경변수와 승인 정책 검증
+│     ├─ kbo-pages.js   두 KBO HTML 페이지 파서와 보수적 병합
+│     ├─ source.js      직렬 GET, 조건부 요청, 지속 quota/circuit
+│     ├─ aws.js         DynamoDB lease/state, SQS, Scheduler adapter
+│     └─ workflow.js    일일 계획과 12시간 제한 경기 창
 ├─ test/                파서·설정·정책·병합 테스트
+├─ Dockerfile           non-root, fixture dry-run 안전 기본 명령
+├─ TARGET_SCOPE.md      KBO 전용 URL·필드·실행 주기 결정
+├─ AWS_FARGATE_SETUP.md AWS 콘솔 배포·검증·중단 절차
 ├─ POLICY.md            수집 허용 기준과 데이터 범위
 └─ OPERATIONS.md        실행, 부하 제어, 장애와 삭제 런북
 ```
@@ -134,7 +157,10 @@ profiles:
 
 - `fixture`: 기본 프로필. 합성 fixture만 사용하고 외부 요청은 0건이다.
 - `safe`: 모든 실행과 출력을 잠가 두는 점검용 프로필이다.
-- `hybrid-locked`: KBO 일정 + NAVER 상세 구성을 검토하기 위한 승인 준비용 프로필이다. `enabled=false`, kill switch 활성, 두 provider 미승인 상태이므로 그대로는 반드시 차단된다.
+- `hybrid-locked`: 과거 KBO+NAVER 검토 흔적을 재현하기 위한 잠긴 프로필이다. 현재 제품 범위가 아니며 배포하지 않는다.
+- Fargate 전용 `config/fargate.yml`의 `fixture`: 두 페이지 DOM을 모사한 로컬 HTML만 읽는다.
+- Fargate 전용 `fixture-aws`: 같은 로컬 HTML을 읽지만 DynamoDB `SCHEDULE#MONTH#YYYY-MM`, 날짜별 snapshot, SQS와 일회성 Scheduler를 실제 AWS에 기록한다.
+- Fargate 전용 `kbo-locked`: 실제 page-only adapter용이지만 서면 허가 값을 넣고 kill switch를 명시적으로 내리기 전까지 차단된다.
 
 유효 설정의 우선순위는 낮은 쪽부터 다음과 같다.
 
@@ -177,6 +203,31 @@ YAML base
 YAML에 없는 키, 범위를 벗어난 숫자, 잘못된 기간·날짜·cron, 프로젝트 밖 경로, 와일드카드 호스트, HTTP URL, 중복 CLI 덮어쓰기는 설정 단계에서 거부한다.
 제공처의 host·endpoint 경로·robots·약관 manifest는 설정으로 교체할 수 없고 서면 범위 확인을 포함한 코드 검토가 필요하다. 요청 헤더는 `accept`와 `accept-language`만 조절할 수 있으며 User-Agent는 `identity`, 쿠키·인증 헤더는 금지된다.
 
+### Fargate 설정
+
+Fargate 경로는 `config/fargate.yml`의 안전 기본값과 다음 우선순위만 사용한다.
+
+```text
+fargate.yml base < profiles.<selected> < 허용 목록에 있는 환경변수 < CLI의 profile/date
+```
+
+알 수 없는 `CRAWLER_*` 환경변수는 오타로 보고 거부한다. URL은 환경변수 대상이 아니다. 자주 조절할 수 있는 값은 다음과 같다.
+
+| 목적 | 환경변수 | 기본값/제약 |
+| --- | --- | --- |
+| 전체 중단 | `CRAWLER_KILL_SWITCH` | `true`; 실 요청 전 명시적으로 `false` 필요 |
+| 일정 선행 실행 | `CRAWLER_PLAN_LEAD_MINUTES` | 60분 |
+| 스코어보드 시작 | `CRAWLER_SCOREBOARD_LEAD_MINUTES` | 10분 |
+| 일정/점수 간격 | `CRAWLER_SCHEDULE_REFRESH_MINUTES`, `CRAWLER_SCOREBOARD_REFRESH_MINUTES` | 15분, 2분보다 짧게 설정 불가 |
+| 종료 보정 | `CRAWLER_FINAL_CHECK_MINUTES` | `5,30,90`, 오름차순 3개 |
+| 하드 타임아웃 | `CRAWLER_HARD_TIMEOUT_MINUTES` | 최대 720분 |
+| 지속 요청량 | `CRAWLER_MAX_LOGICAL_REQUESTS_PER_HOUR`, `CRAWLER_MAX_ATTEMPTS_PER_HOUR` | DynamoDB에서 모든 Task 합산 |
+| AWS 연결 | `CRAWLER_STATE_TABLE`, `CRAWLER_SNAPSHOT_QUEUE_URL`, `CRAWLER_SCHEDULER_*`, `CRAWLER_ECS_*` | 실 실행에서 모두 필수 |
+
+승인 관련 `CRAWLER_AUTH_*` 값은 허가서의 식별자, 검토·만료 시각과 `schedule-page,scoreboard-page,robots-disallow-override` scope를 그대로 반영해야 한다. 증빙 원문이나 개인정보는 환경변수와 Git에 넣지 않는다.
+
+Fargate 계획 작업은 일정 페이지 한 번에서 표시된 월 전체 행을 정규화해 DynamoDB `SCHEDULE#MONTH#YYYY-MM`에 저장하고, 당일 경기만 분리해 일회성 경기 Task 시각을 계산한다. 월간 일정 변경은 `KBO_SCHEDULE_MONTH_SNAPSHOT`, 당일 계획·경기 상태 변경은 `KBO_GAME_SNAPSHOT`으로 SQS에 발행한다. 메시지에는 내용 지문 기반 `idempotencyKey`가 포함되지만 Standard queue의 at-least-once 전달 자체는 가능하므로 소비자도 이 키로 멱등 처리한다. 원본 HTML은 DynamoDB, SQS 또는 로그에 저장하지 않는다.
+
 ## CLI
 
 정확한 전체 옵션과 현재 기본값은 항상 도움말을 기준으로 한다.
@@ -196,7 +247,7 @@ npm run crawl -- --help
 | 검사 | `--print-config`, `--check-config`, `--check-policy`, `--help` |
 
 날짜는 실제 달력에 존재하는 `YYYY-MM-DD`, cron은 초 필드가 없는 정확한 5필드 형식만 허용한다. 출력 및 fixture 경로는 이 크롤러 프로젝트 내부로 제한한다. 같은 설정 키를 두 개의 CLI 옵션으로 중복 지정하거나 `--once`와 `--scheduled`를 함께 지정하면 오류로 종료한다.
-KBO/NAVER 실 소스는 경기일 경계를 일관되게 해석하기 위해 `timezone=Asia/Seoul`만 허용한다.
+KBO 실 소스는 경기일 경계를 일관되게 해석하기 위해 `timezone=Asia/Seoul`만 허용한다.
 
 일반적인 검증 흐름:
 
@@ -243,6 +294,8 @@ npm run crawl:schedule -- --profile fixture
 
 실 네트워크 예약은 [OPERATIONS.md](./OPERATIONS.md)의 시작 전 체크리스트와 kill switch를 준비하고, 매 실행 전에 허가 만료·robots·정책 상태를 확인하도록 구성해야 한다. 401·403·429·CAPTCHA·robots 변경은 자동 재시도 대상이 아니라 중단 신호다.
 실 네트워크 예약에서 `--no-write`는 금지된다. 상태 파일이 없으면 재시작 뒤 적응형 폴링 간격을 보존할 수 없기 때문이다.
+
+AWS에서는 매일 짧은 계획 Task가 일정 페이지를 한 번 확인하고, 경기가 있을 때만 일회성 Fargate 경기 Task를 예약한다. 정확한 주기와 콘솔 설정은 [TARGET_SCOPE.md](./TARGET_SCOPE.md)와 [AWS_FARGATE_SETUP.md](./AWS_FARGATE_SETUP.md)를 따른다.
 
 ## 출력 스키마
 
@@ -302,7 +355,7 @@ npm run crawl:schedule -- --profile fixture
 
 시각은 제공처의 KST 값을 해석한 뒤 UTC ISO 8601 문자열로 정규화한다. fixture 경기의 `source`는 두 실 제공처가 모두 `false`다.
 
-KBO·NAVER 병합 단계는 진단용으로 `matches`, `anomalies`, `unmatched`를 함께 만들 수 있다. 팀·날짜가 모호한 경기를 억지로 합치지 않고 진단 항목으로 남긴다.
+정규형에 남아 있는 NAVER provenance 필드는 기존 스키마 호환용이며 KBO 전용 운영에서는 항상 비어 있어야 한다. 과거 KBO·NAVER 병합 계층은 새 KBO 전용 adapter가 안정화되면 별도 변경으로 제거한다.
 
 원문 relay 문장, 전체 응답, 로고, 사진, 영상과 인증 정보는 출력 스키마에 포함하지 않는다.
 

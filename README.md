@@ -1,6 +1,17 @@
 # Back
 Inning Log backend repository
 
+## Home, games, and viewing logs
+
+Authenticated users can query `GET /api/home/calendar`, `GET /api/home/win-rate`,
+and `GET /api/games`, and manage their stadium/home viewing records through
+`/api/user-game-logs`. The win rate uses the current KST regular season and the
+team selected for each viewing. See [API contract and ingestion setup](docs/home-game-api.md).
+
+Game snapshots are stored in PostgreSQL by an optional SQS consumer, disabled by
+default. Apply the matching crawler changes when enabling ingestion. Video
+availability is reported as `UNAVAILABLE` until the recording domain is connected.
+
 ## Local setup
 
 ```bash
@@ -103,6 +114,14 @@ JWT_SECRET=replace-with-a-strong-secret-at-least-32-bytes
 
 For Google Cloud Console, use the minimum login scopes: `openid`, `profile`,
 and `email`. Store the Google `sub` value as the provider user identifier.
+
+## Timeline and inning records
+
+Game-specific timelines use `GET /api/timelines/me?gameId=123` and
+`GET /api/timelines/{userId}?gameId=123`. Accepted friends may read records;
+only the owner can create, edit, or delete them. Multiple records in one inning
+are supported. See [Timeline API and frontend routing contract](docs/timeline-api.md)
+for record endpoints, pagination, viewing prerequisites, and video integration limits.
 
 ## Push notifications
 

@@ -3,6 +3,7 @@ database_type: 'PostgreSQL'
 Note: '''
 Inning Log MVP ERD 재검토 반영본
 기준일: 2026-08-03
+타임라인 기록 구조 보완: 2026-09-14 (현재 API 계약은 docs/timeline-api.md)
 
 app_users.id는 내부 불변 PK이고 username은 공개 @아이디이다.
 kbo_teams.code는 팀이 합의한 고정 코드로 사용한다.
@@ -385,32 +386,37 @@ file_url은 저장하지 않고 storage_key로 서명 URL을 발급한다.
 Table inning_records {
 id bigint [pk, increment, not null]
 user_game_log_id bigint [not null, ref: > user_game_logs.id]
-inning_number int [not null, note: '1 이상, 연장 이닝 허용']
-half inning_half [not null]
-raw_video_file_id bigint [not null, unique, ref: > media_files.id]
-caption varchar(255)
+client_record_id varchar(36) [not null, note: '기록 생성 요청의 UUID; 재시도에는 같은 값']
+request_fingerprint varchar(64) [not null, note: '최초 생성 요청 비교용 SHA-256']
+inning_number int [not null, note: '1~99, 연장 이닝 허용']
+half inning_half [note: '미확인 시 null']
+caption varchar(255) [not null]
 recorded_at timestamptz [not null, note: '클라이언트 실제 촬영 시각']
-home_score_at_recording int [not null]
-away_score_at_recording int [not null]
+home_score_at_recording int
+away_score_at_recording int
 score_observed_at timestamptz [note: '점수 원본 데이터가 마지막으로 동기화된 시각']
 created_at timestamptz [not null, note: '서버 레코드 생성 시각']
 updated_at timestamptz [not null]
 deleted_at timestamptz [note: '공동 영상 참조 보존을 위한 소프트 삭제']
 
 indexes {
-(user_game_log_id, inning_number, half) [unique, name: 'uq_inning_records_user_log_inning']
+(user_game_log_id, client_record_id) [unique, name: 'uq_inning_records_client']
+(user_game_log_id, deleted_at, inning_number, recorded_at, id) [name: 'idx_inning_records_timeline']
 }
 
 checks {
-`inning_number >= 1` [name: 'chk_inning_records_inning_number']
-`home_score_at_recording >= 0` [name: 'chk_inning_records_home_score']
-`away_score_at_recording >= 0` [name: 'chk_inning_records_away_score']
+`inning_number BETWEEN 1 AND 99` [name: 'chk_inning_records_inning_number']
+`home_score_at_recording IS NULL OR home_score_at_recording >= 0` [name: 'chk_inning_records_home_score']
+`away_score_at_recording IS NULL OR away_score_at_recording >= 0` [name: 'chk_inning_records_away_score']
+`(home_score_at_recording IS NULL) = (away_score_at_recording IS NULL) AND (home_score_at_recording IS NULL) = (score_observed_at IS NULL)` [name: 'chk_inning_record_score_pair']
 }
 
 Note: '''
 game_inning_states를 참조하지 않고 이닝 번호와 초/말을 직접 스냅샷으로 저장한다.
-한 사용자 경기 로그의 한 이닝당 레코드 1개를 유지하며 교체 시 기존 행을 갱신한다.
-raw_video_file은 READY 상태이며 RAW_CLIP 타입인지 서비스에서 검증한다.
+한 사용자 경기 로그의 같은 이닝과 초/말에 여러 기록을 저장할 수 있다.
+점수 관측이 촬영 이후이거나 5분 넘게 오래되었으면 점수와 score_observed_at을 모두 null로 저장한다.
+원본 영상 연결은 후속 media API에서 추가하며 현재 V16은 영상 파일 FK를 만들지 않는다.
+향후 연결할 raw_video_file은 소유권과 READY 상태 및 RAW_CLIP 타입을 서비스에서 검증한다.
 '''
 }
 
