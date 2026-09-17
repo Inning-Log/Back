@@ -2,6 +2,7 @@ package com.inninglog.domain.game.repository;
 
 import com.inninglog.domain.game.model.Game;
 import com.inninglog.domain.game.model.GameStatus;
+import com.inninglog.domain.game.model.GameStateSnapshot;
 import com.inninglog.domain.game.model.GameType;
 import com.inninglog.domain.game.model.UserGameLog;
 import com.inninglog.domain.game.model.ViewingType;
@@ -42,6 +43,11 @@ public class GameRepository {
     private static final RowMapper<UserGameLog> LOG_MAPPER = (rs, index) -> new UserGameLog(
             rs.getLong("id"), rs.getLong("user_id"), rs.getLong("game_id"), rs.getLong("cheering_team_id"),
             ViewingType.valueOf(rs.getString("viewing_type")), instant(rs, "created_at"), instant(rs, "updated_at"), instant(rs, "deleted_at"));
+    private static final RowMapper<GameStateSnapshot> STATE_MAPPER = (rs, index) -> new GameStateSnapshot(
+            rs.getLong("id"), rs.getLong("game_id"), GameStatus.valueOf(rs.getString("status")),
+            rs.getObject("current_inning", Integer.class), rs.getString("current_half"),
+            rs.getObject("home_score", Integer.class), rs.getObject("away_score", Integer.class),
+            instant(rs, "observed_at"), rs.getString("result_source"));
 
     public GameRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
@@ -56,6 +62,21 @@ public class GameRepository {
     public List<Game> forDate(LocalDate date) {
         return jdbc.query(GAME_SELECT + " where g.game_date = ? order by g.scheduled_at nulls last, g.game_sequence nulls last, g.id",
                 GAME_MAPPER, date);
+    }
+
+    public List<GameStateSnapshot> stateHistory(long gameId) {
+        return jdbc.query("""
+                select * from game_state_snapshots
+                 where game_id = ? order by observed_at, id
+                """, STATE_MAPPER, gameId);
+    }
+
+    public Optional<GameStateSnapshot> stateAtOrBefore(long gameId, Instant instant) {
+        return jdbc.query("""
+                select * from game_state_snapshots
+                 where game_id = ? and observed_at <= ?
+                 order by observed_at desc, id desc limit 1
+                """, STATE_MAPPER, gameId, timestamp(instant)).stream().findFirst();
     }
 
     public List<Game> forMonth(long userId, long teamId, LocalDate from, LocalDate until) {

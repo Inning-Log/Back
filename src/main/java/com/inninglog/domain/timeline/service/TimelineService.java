@@ -116,14 +116,13 @@ public class TimelineService {
         Instant now = clock.instant();
         if (!captured.atZone(GameUserAccess.KST).toLocalDate().equals(game.gameDate()) || captured.isAfter(now))
             throw new IllegalArgumentException("촬영 시각은 해당 경기일이며 현재 시각 이후일 수 없습니다.");
-        // Only attach a recently observed score that existed at capture time. Never use a later/final score retroactively.
-        boolean scoreKnown = (game.status() == GameStatus.LIVE || game.status() == GameStatus.FINISHED)
-                && game.homeScore() != null && game.awayScore() != null
-                && !game.resultObservedAt().isAfter(captured)
-                && !game.resultObservedAt().isBefore(captured.minusSeconds(300));
+        // A state remains valid until the next change. This also supports delayed uploads after the game ends.
+        var state = games.stateAtOrBefore(game.id(), captured)
+                .filter(snapshot -> (snapshot.status() == GameStatus.LIVE || snapshot.status() == GameStatus.FINISHED)
+                        && snapshot.hasScore()).orElse(null);
         long id = records.insert(log.id(), request.clientRecordId(), fingerprint, request.inning(), request.half(), request.text(),
-                captured, scoreKnown ? game.homeScore() : null, scoreKnown ? game.awayScore() : null,
-                scoreKnown ? game.resultObservedAt() : null, now);
+                captured, state == null ? null : state.homeScore(), state == null ? null : state.awayScore(),
+                state == null ? null : state.observedAt(), now);
         return new Registration(InningRecordResponse.from(requireRecord(id, false)), true);
     }
 

@@ -39,6 +39,13 @@ public class GameService {
                         recordCounts.getOrDefault(game.id(), 0L))).toList());
     }
 
+    @Transactional(readOnly = true)
+    public GameStateHistoryResponse stateHistory(String subject, long gameId) {
+        access.require(subject, false);
+        requireGame(gameId);
+        return GameStateHistoryResponse.from(gameId, games.stateHistory(gameId));
+    }
+
     @Transactional
     public Registration create(String subject, CreateUserGameLogRequest request) {
         User user = access.require(subject, true);
