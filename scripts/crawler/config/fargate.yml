@@ -37,6 +37,9 @@ base:
     minHostIntervalMs: 2s
     maxResponseBytes: 2097152
     retryCount: 1
+    # Parse failures only: at most two fresh observations, two minutes apart.
+    schemaRetryCount: 2
+    schemaRetryDelayMs: 2m
     retryBaseDelayMs: 1s
     maxLogicalRequestsPerHour: 40
     maxAttemptsPerHour: 60
@@ -86,15 +89,19 @@ profiles:
     policy:
       killSwitch: false
 
-  # MVP 승인 후 실제 KBO 동작 프로필. fixture을 사용하지 않고, KBO
-  # Schedule.aspx + ScoreBoard.aspx 두 페이지만 허가 범위로 운영한다.
-  # approval evidence/robot 예외/kill switch는 환경변수로 주입한다.
+  # 운영자가 요청한 실제 수집. 제3자 승인 여부를 approved로 기록하지 않는다.
+  # 일정 화면의 공개 AJAX 요청과 스코어보드 HTML만 사용한다.
+  # CRAWLER_KILL_SWITCH=false를 명시해야 실행된다.
   kbo-live:
     enabled: true
     provider: kbo
+    scheduleTransport: page-ajax
+    identity:
+      contact: https://github.com/Inning-Log/Back
     runtime:
       persistence: aws
     policy:
+      accessMode: operator-requested
       killSwitch: true
       authorizationStatus: unverified
       authorizationEvidence: null

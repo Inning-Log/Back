@@ -1,11 +1,16 @@
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import axios from "axios";
 import { KBO_ENDPOINTS, assertLivePolicy } from "./config.js";
 import {
   parseKboScheduleMonthPage,
   parseKboSchedulePage,
+  parseKboScheduleResponse,
   parseKboScoreboardPage,
+  scoreboardEvidence,
 } from "./kbo-pages.js";
+import { safeError, safeDetails } from "./diagnostics.js";
+import { abortableSleep } from "./sleep.js";
 
 export class KboRequestError extends Error {
   constructor(message, code = "KBO_REQUEST_FAILED", details = {}) {
@@ -14,18 +19,6 @@ export class KboRequestError extends Error {
     this.code = code;
     this.details = details;
   }
-}
-
-function abortableSleep(ms, signal) {
-  if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-    signal?.addEventListener("abort", () => {
-      clearTimeout(timer);
-      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-    }, { once: true });
-  });
 }
 
 function assertExactEndpoint(capability, rawUrl) {
@@ -113,6 +106,7 @@ export function createKboPageSource(config, dependencies = {}) {
 
   const sleep = dependencies.sleep ?? abortableSleep;
   const random = dependencies.random ?? Math.random;
+  const log = dependencies.log ?? (() => {});
   const state = dependencies.state;
   if (
     !state
@@ -161,6 +155,7 @@ export function createKboPageSource(config, dependencies = {}) {
       openUntil: now() + durationMs,
       openedAt: new Date(now()).toISOString(),
     }, Math.floor((now() + durationMs) / 1000) + 86_400);
+    log({ level: "error", event: "circuit_opened", code, openUntil: new Date(now() + durationMs).toISOString() });
   }
 
   async function reserve(kind, limit, signal) {
@@ -168,9 +163,9 @@ export function createKboPageSource(config, dependencies = {}) {
     await state?.reserveQuota?.(`KBO#${kind}#${hourBucket(now())}`, limit, Math.floor(now() / 1000) + 7_200);
   }
 
-  async function request(capability, signal) {
+  async function request(capability, signal, form = null) {
     assertLivePolicy(config, new Date(now()));
-    const url = config.endpoints[capability];
+    const url = capability === "scheduleData" ? KBO_ENDPOINTS.scheduleData : config.endpoints[capability];
     assertExactEndpoint(capability, url);
     await assertCircuitClosed();
     await reserve("LOGICAL", config.request.maxLogicalRequestsPerHour, signal);
@@ -190,7 +185,13 @@ export function createKboPageSource(config, dependencies = {}) {
       if (cached?.etag) headers["if-none-match"] = cached.etag;
       if (cached?.lastModified) headers["if-modified-since"] = cached.lastModified;
       try {
-        const response = await client.get(url, { headers, signal });
+        const response = form == null
+          ? await client.get(url, { headers, signal })
+          : await client.post(url, form.toString(), { headers: {
+            ...headers,
+            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+            referer: KBO_ENDPOINTS.schedule,
+          }, signal });
         const status = response.status;
         if (status === 304 && cached?.body != null) return cached.body;
         if (status >= 300 && status < 400) {
@@ -212,9 +213,22 @@ export function createKboPageSource(config, dependencies = {}) {
           }
           throw Object.assign(new Error(`HTTP ${status}`), { retryable: true });
         }
-        const body = String(response.data ?? "");
+        const body = typeof response.data === "object" ? JSON.stringify(response.data) : String(response.data ?? "");
         if (bodyBytes(body) > config.request.maxResponseBytes) {
           throw new KboRequestError("KBO response exceeded the byte limit", "KBO_RESPONSE_TOO_LARGE");
+        }
+        if (looksBlocked(body)) {
+          await tripCircuit("KBO_BOT_CHALLENGE", 24 * 60 * 60_000);
+          throw new KboRequestError("KBO bot/access challenge detected; stopping", "KBO_BOT_CHALLENGE");
+        }
+        if (capability === "scheduleData") {
+          try {
+            const data = JSON.parse(body);
+            if (!Array.isArray(data?.rows)) throw new Error("rows missing");
+            return data;
+          } catch {
+            throw new KboRequestError("KBO schedule endpoint did not return a rows JSON response", "KBO_PAGE_SCHEMA_MISMATCH", bodyDiagnostic(body));
+          }
         }
         if (!/<(?:!doctype\s+html|html|body)\b/i.test(body)) {
           await tripCircuit("KBO_NON_HTML_RESPONSE", 6 * 60 * 60_000);
@@ -247,34 +261,97 @@ export function createKboPageSource(config, dependencies = {}) {
     );
   }
 
+  function bodyDiagnostic(value) {
+    const body = typeof value === "object" ? JSON.stringify(value) : String(value ?? "");
+    return { bodyBytes: bodyBytes(body), bodySha256: createHash("sha256").update(body).digest("hex") };
+  }
+
+  // A bad observation is never published. Only schema errors get slow, bounded
+  // fresh observations; denied/rate-limited requests and other failures stay fatal.
+  async function fetchParsed(page, dateKey, options, fetch, parse) {
+    const maxAttempts = 1 + config.request.schemaRetryCount;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      if (options.deadline != null && now() >= options.deadline) {
+        throw new KboRequestError("Game-window deadline reached before observation", "KBO_RECOVERY_DEADLINE");
+      }
+      let body;
+      try {
+        body = await fetch();
+        const result = stampPageObservation(parse(body), page, now());
+        log({ level: result.anomalies.length ? "warn" : "info", event: "page_observed",
+          page, targetDate: dateKey, gameCount: result.games.length,
+          details: safeDetails({ anomalies: result.anomalies }), requestMetrics: { logicalRequests, attempts } });
+        if (attempt > 1) log({ level: "info", event: "schema_recovered", page, attempt });
+        return result;
+      } catch (error) {
+        if (error?.code !== "KBO_PAGE_SCHEMA_MISMATCH") throw error;
+        error.details = { ...error.details, page, targetDate: dateKey, attempt, maxAttempts,
+          ...(body == null ? {} : bodyDiagnostic(body)) };
+        if (page === "scoreboard" && typeof body === "string") {
+          const evidenceKey = `DIAGNOSTIC#${dateKey}#scoreboard#${now()}#${error.details.bodySha256.slice(0, 12)}`;
+          try {
+            await state.putJson(evidenceKey, {
+              schemaVersion: 1, observedAt: new Date(now()).toISOString(), targetDate: dateKey,
+              error: safeError(error), evidence: scoreboardEvidence(body),
+            }, Math.floor(now() / 1000) + 7 * 86_400);
+            error.details.evidenceKey = evidenceKey;
+          } catch (storageError) {
+            log({ ...safeError(storageError), event: "diagnostic_persist_failed", page });
+          }
+        }
+        // Do not accept a 304 reusing the very body that just failed validation.
+        validators.delete(config.endpoints[page]);
+        log({ ...safeError(error), level: "warn", event: "schema_observation_failed" });
+        if (attempt === maxAttempts) {
+          await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
+          throw error;
+        }
+        const retryAt = now() + config.request.schemaRetryDelayMs;
+        if (options.deadline != null && retryAt >= options.deadline) {
+          throw new KboRequestError("Schema recovery would exceed the game-window deadline", "KBO_RECOVERY_DEADLINE", error.details);
+        }
+        await options.beforeRetry?.();
+        log({ level: "warn", event: "schema_retry_scheduled", page, attempt,
+          retryAt: new Date(retryAt).toISOString() });
+        await sleep(config.request.schemaRetryDelayMs, options.signal);
+      }
+    }
+  }
+
+  async function fetchMonth(dateKey, options = {}) {
+    const ajax = config.scheduleTransport === "page-ajax";
+    return fetchParsed("schedule", dateKey, options, () => ajax
+      ? request("scheduleData", options.signal, new URLSearchParams({
+        leId: "1", srIdList: config.scheduleSeries, seasonId: dateKey.slice(0, 4),
+        gameMonth: dateKey.slice(5, 7), teamId: "",
+      }))
+      : request("schedule", options.signal), (result) => {
+      const month = ajax
+        ? parseKboScheduleResponse(result, dateKey.slice(0, 7), config.scheduleSeries)
+        : parseKboScheduleMonthPage(result, dateKey.slice(0, 7));
+      const games = month.games.filter(game => game.date === dateKey);
+      const anomalies = month.anomalies.filter(entry => entry.date === dateKey);
+      if ((games.length === 0 && anomalies.length > 0) || games.length > 10) {
+        throw new KboRequestError("Invalid target-date schedule rows", "KBO_PAGE_SCHEMA_MISMATCH", { anomalies });
+      }
+      return month;
+    });
+  }
+
   return {
     kind: "kbo",
     async fetchScheduleMonth(dateKey, options = {}) {
-      const html = await request("schedule", options.signal);
-      try {
-        return stampPageObservation(parseKboScheduleMonthPage(html, dateKey.slice(0, 7)), "schedule", now());
-      } catch (error) {
-        await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
-        throw error;
-      }
+      return fetchMonth(dateKey, options);
     },
     async fetchSchedule(dateKey, options = {}) {
-      const html = await request("schedule", options.signal);
-      try {
-        return stampPageObservation(parseKboSchedulePage(html, dateKey), "schedule", now());
-      } catch (error) {
-        await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
-        throw error;
-      }
+      const month = await fetchMonth(dateKey, options);
+      const games = month.games.filter(game => game.date === dateKey);
+      const anomalies = month.anomalies.filter(entry => entry.date === dateKey);
+      return { games, anomalies, pageDate: month.pageDate };
     },
     async fetchScoreboard(dateKey, options = {}) {
-      const html = await request("scoreboard", options.signal);
-      try {
-        return stampPageObservation(parseKboScoreboardPage(html, dateKey), "scoreboard", now());
-      } catch (error) {
-        await tripCircuit("KBO_PAGE_SCHEMA_MISMATCH", 6 * 60 * 60_000);
-        throw error;
-      }
+      return fetchParsed("scoreboard", dateKey, options,
+        () => request("scoreboard", options.signal), html => parseKboScoreboardPage(html, dateKey));
     },
     getMetrics: () => ({ logicalRequests, attempts }),
   };

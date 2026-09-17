@@ -1,5 +1,6 @@
 import path from "node:path";
 import process from "node:process";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   FargateConfigError,
@@ -18,7 +19,9 @@ import {
   SnapshotPublisher,
 } from "./aws.js";
 import { createKboPageSource } from "./source.js";
-import { isStrictDate, runGameWindow, runPlanDay, todayInSeoul } from "./workflow.js";
+import { safeError } from "./diagnostics.js";
+export { safeError } from "./diagnostics.js";
+import { isStrictDate, runCollectOnce, runGameWindow, runPlanDay, todayInSeoul } from "./workflow.js";
 
 export function parseFargateArgs(argv) {
   const output = {
@@ -31,6 +34,7 @@ export function parseFargateArgs(argv) {
   };
   const actionFlags = new Map([
     ["--plan-day", "plan-day"],
+    ["--collect-once", "collect-once"],
     ["--run-game-window", "run-game-window"],
     ["--check-config", "check-config"],
     ["--check-policy", "check-policy"],
@@ -70,7 +74,7 @@ export function parseFargateArgs(argv) {
   }
   if (!output.action) throw new FargateConfigError("One action is required; use --help");
   if (output.date && !isStrictDate(output.date)) throw new FargateConfigError("--date must be YYYY-MM-DD");
-  if (output.action === "run-game-window" && output.dryRun) {
+  if (["run-game-window", "collect-once"].includes(output.action) && output.dryRun) {
     throw new FargateConfigError("--dry-run cannot start a game-window loop; use --plan-day --dry-run");
   }
   return output;
@@ -80,6 +84,7 @@ export function formatFargateHelp() {
   return `Inning Log KBO page-only Fargate crawler
 
 Actions (choose one):
+  --collect-once         Fetch month + scoreboard once, publish, and verify state read-back
   --plan-day             Read today's schedule and upsert one game-window task
   --run-game-window      Poll schedule/scoreboard only during the bounded game window
   --check-config         Validate configuration without AWS or KBO access
@@ -93,7 +98,7 @@ Options:
   --dry-run              Zero-network plan inspection; valid with --plan-day only
   --print-config         Print redacted effective configuration
 
-The deployed scope is exactly Schedule.aspx and ScoreBoard.aspx. The safe image
+The live source uses Schedule.aspx's GetScheduleList request and ScoreBoard.aspx. The safe image
 default is: --plan-day --profile fixture --dry-run.`;
 }
 
@@ -164,10 +169,16 @@ export async function main(argv = process.argv.slice(2), environment = process.e
   }
 
   assertLivePolicy(config, new Date(dependencies.now?.() ?? Date.now()));
+  const runId = dependencies.owner ?? randomUUID();
+  const log = (event) => (dependencies.log ?? logJson)({
+    ...event, runId, action: args.action, profile, date: dateKey,
+    timestamp: new Date(dependencies.now?.() ?? Date.now()).toISOString(),
+  });
   const runtime = runtimeDependencies(config, profile, false, dependencies);
   const source = dependencies.source ?? createKboPageSource(config, {
     ...dependencies,
     state: runtime.state,
+    log,
   });
   const controller = dependencies.controller ?? new AbortController();
   const onSignal = (name) => controller.abort(new DOMException(`Received ${name}`, "AbortError"));
@@ -178,6 +189,7 @@ export async function main(argv = process.argv.slice(2), environment = process.e
     process.once("SIGINT", sigint);
   }
   try {
+    log({ level: "info", event: "run_started" });
     const context = {
       config,
       profile,
@@ -187,13 +199,19 @@ export async function main(argv = process.argv.slice(2), environment = process.e
       signal: controller.signal,
       now: dependencies.now,
       sleep: dependencies.sleep,
-      owner: dependencies.owner,
+      owner: runId,
+      log,
     };
-    const result = args.action === "plan-day"
+    const result = args.action === "collect-once"
+      ? await runCollectOnce(context)
+      : args.action === "plan-day"
       ? await runPlanDay(context)
       : await runGameWindow(context);
-    logJson({ action: args.action, profile, ...result });
+    log({ level: result.reason === "hard-timeout" ? "error" : "info", event: "run_completed", ...result });
     return result;
+  } catch (error) {
+    log({ ...safeError(error), event: "run_failed", requestMetrics: source.getMetrics() });
+    throw error;
   } finally {
     if (!dependencies.controller) {
       process.off("SIGTERM", sigterm);
@@ -202,27 +220,16 @@ export async function main(argv = process.argv.slice(2), environment = process.e
   }
 }
 
-function safeError(error) {
-  return {
-    level: "error",
-    code: error?.code ?? "FARGATE_CRAWLER_FAILED",
-    message: String(error?.message ?? error).split("\n", 1)[0].slice(0, 500),
-    details: Array.isArray(error?.details)
-      ? error.details.map((entry) => ({
-        code: entry.code,
-        path: entry.path,
-        message: String(entry.message ?? "").slice(0, 300),
-      }))
-      : undefined,
-  };
-}
-
 const currentFile = path.resolve(fileURLToPath(import.meta.url));
 const invokedFile = process.argv[1] ? path.resolve(process.argv[1]) : null;
+export function resultExitCode(result) {
+  if (result?.action === "check-policy" && result.ok === false) return 2;
+  return result?.reason === "hard-timeout" ? 1 : 0;
+}
 if (invokedFile === currentFile) {
   main()
     .then((result) => {
-      if (result?.action === "check-policy" && result.ok === false) process.exitCode = 2;
+      process.exitCode = resultExitCode(result);
     })
     .catch((error) => {
       console.error(JSON.stringify(safeError(error)));

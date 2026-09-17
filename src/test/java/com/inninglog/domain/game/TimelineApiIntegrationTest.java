@@ -133,18 +133,34 @@ class TimelineApiIntegrationTest extends GameIntegrationSupport {
     }
 
     @Test
-    void missingStaleOrLaterScoreObservationReturnsNull() throws Exception {
+    void scoreHistoryUsesCaptureTimeAndDoesNotExpireAfterFiveMinutes() throws Exception {
         var user = user();
-        long gameId = setup(user);
+        var futureState = game(TODAY, "LIVE", 9, 8);
+        futureState.put("awayTeam", Map.of("code", "NC"));
+        long futureGameId = ingest(futureState);
+        viewing(user, futureGameId, team("LG"), "STADIUM");
+        var beforeFirstObservation = create(user, input(futureGameId, 1, OBSERVED.minusSeconds(1)));
+        assertThat(beforeFirstObservation.path("homeScore").isNull()).isTrue();
+        assertThat(beforeFirstObservation.path("awayScore").isNull()).isTrue();
+
+        var oldState = game(TODAY, "LIVE", 5, 3);
+        importer.importMessage(message(List.of(oldState), NOW.minusSeconds(900), false));
+        long gameId = jdbc.queryForObject("select game_id from game_external_ids where external_id = ?", Long.class,
+                ((Map<?,?>)oldState.get("externalId")).get("kbo"));
+        viewing(user, gameId, team("LG"), "STADIUM");
         var earlierCapture = create(user, input(gameId, 1, OBSERVED.minusSeconds(1)));
-        assertThat(earlierCapture.path("homeScore").isNull()).isTrue();
-        jdbc.update("update games set result_observed_at = ? where id = ?", com.inninglog.domain.game.repository.GameRepository.timestamp(NOW.minusSeconds(900)), gameId);
-        var stale = create(user, input(gameId, 1, NOW.minusSeconds(30)));
-        assertThat(stale.path("scoreObservedAt").isNull()).isTrue();
-        jdbc.update("update games set home_score = null, result_observed_at = ? where id = ?", com.inninglog.domain.game.repository.GameRepository.timestamp(OBSERVED), gameId);
-        var missing = create(user, input(gameId, 1, NOW.minusSeconds(30)));
-        assertThat(missing.path("homeScore").isNull()).isTrue();
-        assertThat(missing.path("awayScore").isNull()).isTrue();
+        assertThat(earlierCapture.path("homeScore").intValue()).isEqualTo(5);
+        assertThat(earlierCapture.path("awayScore").intValue()).isEqualTo(3);
+        assertThat(earlierCapture.path("scoreObservedAt").asText()).isEqualTo(NOW.minusSeconds(900).toString());
+
+        oldState.put("score", Map.of("home",2,"away",5));
+        importer.importMessage(message(List.of(oldState), NOW.minusSeconds(60), false));
+        var beforeComeback = create(user, input(gameId, 5, NOW.minusSeconds(120)));
+        var afterComeback = create(user, input(gameId, 7, NOW.minusSeconds(30)));
+        assertThat(beforeComeback.path("homeScore").intValue()).isEqualTo(5);
+        assertThat(beforeComeback.path("awayScore").intValue()).isEqualTo(3);
+        assertThat(afterComeback.path("homeScore").intValue()).isEqualTo(2);
+        assertThat(afterComeback.path("awayScore").intValue()).isEqualTo(5);
     }
 
     @Test

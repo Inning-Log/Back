@@ -84,6 +84,9 @@ jobs:
       APP_HOST_PORT: ${{ secrets.APP_HOST_PORT || '8080' }}
       MANAGEMENT_HOST_PORT: ${{ secrets.MANAGEMENT_HOST_PORT || '9090' }}
       MANAGEMENT_PORT: ${{ secrets.MANAGEMENT_PORT || '9090' }}
+      CONTAINER_MEMORY: ${{ secrets.CONTAINER_MEMORY || '640m' }}
+      CONTAINER_MEMORY_SWAP: ${{ secrets.CONTAINER_MEMORY_SWAP || '896m' }}
+      CONTAINER_PIDS_LIMIT: ${{ secrets.CONTAINER_PIDS_LIMIT || '256' }}
 
       EC2_ENV_FILE: ${{ secrets.EC2_ENV_FILE || '/etc/inninglog/inninglog.env' }}
       EC2_FIREBASE_CREDENTIALS_FILE: ${{ secrets.EC2_FIREBASE_CREDENTIALS_FILE || '/etc/inninglog/firebase-admin.json' }}
@@ -178,7 +181,9 @@ jobs:
                fi"
 
 
-      # 배포 전에 과거 tar / 사용하지 않는 Docker 이미지 정리
+      # 배포 전에 과거 tar / 사용하지 않는 Docker 이미지 정리.
+      # 정지 컨테이너는 이미지를 계속 붙잡아 작은 루트 볼륨을 고갈시키므로
+      # 자동 삭제하지 않고 명시적으로 실패시켜 운영자가 대상을 확인하게 한다.
       - name: Prepare remote deploy directory
         run: |
           ssh \
@@ -187,31 +192,38 @@ jobs:
             "$EC2_USER@$EC2_HOST" \
             "mkdir -p '$REMOTE_DEPLOY_DIR' \
             && rm -f '$REMOTE_DEPLOY_DIR'/inning-log-*.tar \
+            && if [ -n \"\$(docker ps -aq --filter status=exited)\" ]; then \
+                 echo 'Stopped containers pin Docker images. Review and remove them before deployment:'; \
+                 docker ps -a --filter status=exited --format 'table {{.Names}}\\t{{.Status}}\\t{{.Image}}'; \
+                 exit 1; \
+               fi \
+            && if ! swapon --show=NAME --noheadings | grep -qx '/swapfile'; then \
+                 echo 'Required emergency swap /swapfile is not active'; \
+                 exit 1; \
+               fi \
             && docker image prune -af \
+            && AVAILABLE_KB=\$(df -Pk '$REMOTE_DEPLOY_DIR' | awk 'NR == 2 { print \$4 }') \
+            && if [ \"\$AVAILABLE_KB\" -lt 1200000 ]; then \
+                 echo \"Insufficient free disk for streamed image load: \$AVAILABLE_KB KiB available\"; \
+                 exit 1; \
+               fi \
             && echo '=== Disk usage before deployment ===' \
             && df -h '$REMOTE_DEPLOY_DIR' \
             && echo '=== Docker disk usage ===' \
             && docker system df"
 
 
-      - name: Upload image to EC2
+      # 원격에 image tar를 저장하면 기존 이미지 + tar + 새 이미지가 동시에
+      # 루트 볼륨을 차지한다. gzip 스트림으로 바로 docker load하여 peak 사용량을 줄인다.
+      - name: Stream image to EC2 and load
         run: |
-          scp \
-            -i ~/.ssh/ec2_key \
-            -P "$EC2_PORT" \
-            "$IMAGE_TAR" \
-            "$EC2_USER@$EC2_HOST:$REMOTE_DEPLOY_DIR/"
-
-
-      # docker load가 끝난 순간 tar는 필요 없으므로 즉시 삭제
-      - name: Load Docker image on EC2
-        run: |
-          ssh \
+          set -o pipefail
+          gzip -1 -c "$IMAGE_TAR" \
+          | ssh \
             -i ~/.ssh/ec2_key \
             -p "$EC2_PORT" \
             "$EC2_USER@$EC2_HOST" \
-            "docker load -i '$REMOTE_DEPLOY_DIR/$IMAGE_TAR' \
-            && rm -f '$REMOTE_DEPLOY_DIR/$IMAGE_TAR' \
+            "gzip -dc | docker load \
             && echo '=== Disk usage after docker load ===' \
             && df -h '$REMOTE_DEPLOY_DIR'"
 
@@ -236,6 +248,9 @@ jobs:
                docker run -d \
                  --name '$CONTAINER_NAME' \
                  --restart unless-stopped \
+                 --memory '$CONTAINER_MEMORY' \
+                 --memory-swap '$CONTAINER_MEMORY_SWAP' \
+                 --pids-limit '$CONTAINER_PIDS_LIMIT' \
                  --env-file '$EC2_ENV_FILE' \
                  --env 'MANAGEMENT_SERVER_ADDRESS=0.0.0.0' \
                  --env 'MANAGEMENT_SERVER_PORT=$MANAGEMENT_PORT' \
@@ -247,6 +262,9 @@ jobs:
                docker run -d \
                  --name '$CONTAINER_NAME' \
                  --restart unless-stopped \
+                 --memory '$CONTAINER_MEMORY' \
+                 --memory-swap '$CONTAINER_MEMORY_SWAP' \
+                 --pids-limit '$CONTAINER_PIDS_LIMIT' \
                  --env-file '$EC2_ENV_FILE' \
                  --env 'MANAGEMENT_SERVER_ADDRESS=0.0.0.0' \
                  --env 'MANAGEMENT_SERVER_PORT=$MANAGEMENT_PORT' \

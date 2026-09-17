@@ -7,6 +7,10 @@ import java.util.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.MediaType;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @Transactional
 class GameSnapshotIntegrationTest extends GameIntegrationSupport {
@@ -42,6 +46,46 @@ class GameSnapshotIntegrationTest extends GameIntegrationSupport {
         input.put("score",Map.of("home",9,"away",3));
         importer.importMessage(message(List.of(input),OBSERVED.minusSeconds(5),false));
         assertThat(games.find(id).orElseThrow().homeScore()).isEqualTo(5);
+        assertThat(jdbc.queryForObject("select count(*) from game_state_snapshots where game_id = ?", Long.class, id)).isEqualTo(3);
+    }
+
+    @Test
+    void stateHistoryAppendsOnlyMeaningfulChangesAndIsAvailableFromApi() throws Exception {
+        var input = game(TODAY,"SCHEDULED",null,null);
+        long id = ingest(input);
+        importer.importMessage(message(List.of(input),OBSERVED.plusSeconds(1),false));
+
+        input.put("status","LIVE"); input.put("score",Map.of("home",0,"away",0));
+        input.put("inning",1); input.put("half","TOP");
+        importer.importMessage(message(List.of(input),OBSERVED.plusSeconds(2),false));
+        importer.importMessage(message(List.of(input),OBSERVED.plusSeconds(3),false));
+
+        input.put("score",Map.of("home",2,"away",1)); input.put("inning",5); input.put("half","BOTTOM");
+        importer.importMessage(message(List.of(input),OBSERVED.plusSeconds(4),false));
+        input.put("score",Map.of("home",2,"away",5)); input.put("inning",7); input.put("half","TOP");
+        importer.importMessage(message(List.of(input),OBSERVED.plusSeconds(5),false));
+        input.put("status","FINISHED"); input.put("inning",null); input.put("half",null);
+        importer.importMessage(message(List.of(input),OBSERVED.plusSeconds(6),false));
+
+        var states = games.stateHistory(id);
+        assertThat(states).hasSize(5);
+        assertThat(states).extracting(state -> Arrays.asList(state.status().name(), state.homeScore(), state.awayScore(),
+                        state.currentInning(), state.currentHalf()))
+                .containsExactly(
+                        Arrays.asList("SCHEDULED",null,null,null,null),
+                        Arrays.asList("LIVE",0,0,1,"TOP"),
+                        Arrays.asList("LIVE",2,1,5,"BOTTOM"),
+                        Arrays.asList("LIVE",2,5,7,"TOP"),
+                        Arrays.asList("FINISHED",2,5,null,null));
+
+        var user = user();
+        mvc.perform(get("/api/games/{gameId}/states",id).with(as(user)).accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gameId").value(id))
+                .andExpect(jsonPath("$.states.length()").value(5))
+                .andExpect(jsonPath("$.states[2].inning").value(5))
+                .andExpect(jsonPath("$.states[2].homeScore").value(2))
+                .andExpect(jsonPath("$.states[3].awayScore").value(5));
     }
 
     @Test
@@ -54,6 +98,7 @@ class GameSnapshotIntegrationTest extends GameIntegrationSupport {
         assertThat(saved.status()).isEqualTo(GameStatus.FINISHED);
         assertThat(saved.homeScore()).isEqualTo(5);
         assertThat(saved.resultObservedAt()).isEqualTo(OBSERVED);
+        assertThat(games.stateHistory(id)).hasSize(1);
     }
 
     @Test

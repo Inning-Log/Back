@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { abortableSleep } from "./sleep.js";
 import {
   allGamesTerminal,
   earliestScheduledAt,
@@ -13,18 +14,6 @@ function iso(nowMs) {
 
 function expiry(nowMs, days = 45) {
   return Math.floor(nowMs / 1000) + days * DAY_SECONDS;
-}
-
-function abortableSleep(ms, signal) {
-  if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-    signal?.addEventListener("abort", () => {
-      clearTimeout(timer);
-      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-    }, { once: true });
-  });
 }
 
 function snapshot({ config, source, dateKey, mode, observedAt, games, anomalies }) {
@@ -59,6 +48,14 @@ async function saveAndPublish({ state, publisher, value, nowMs }) {
   return publisher.publishIfChanged(value);
 }
 
+function recoveryOptions({ state, leaseKey, owner, now, signal, deadline, ttlMs = 600_000 }) {
+  return { signal, deadline, beforeRetry: async () => {
+    const renewed = await state.renewLease(leaseKey, owner,
+      Math.floor((now() + ttlMs) / 1000), Math.floor(now() / 1000));
+    if (!renewed) throw Object.assign(new Error("Lease lost before schema recovery"), { code: "LEASE_LOST" });
+  } };
+}
+
 async function saveMonthSchedule({ state, publisher, value, nowMs }) {
   await state.putJson(`SCHEDULE#MONTH#${value.month}`, value, expiry(nowMs, 400));
   return publisher.publishIfChanged(value);
@@ -70,6 +67,40 @@ function activeGames(games) {
 
 function windowStart(earliestAt, config) {
   return earliestAt == null ? null : earliestAt - config.polling.scoreboardLeadMs;
+}
+
+export async function runCollectOnce(context) {
+  const { config, source, state, publisher, dateKey } = context;
+  const now = context.now ?? (() => Date.now());
+  const owner = context.owner ?? randomUUID();
+  const leaseKey = `LEASE#WINDOW#${dateKey}`;
+  if (!await state.acquireLease(leaseKey, owner, Math.floor(now() / 1000) + 600, Math.floor(now() / 1000))) {
+    return { skipped: true, reason: "lease-held", date: dateKey };
+  }
+  try {
+    const options = recoveryOptions({ state, leaseKey, owner, now, signal: context.signal });
+    const month = await source.fetchScheduleMonth(dateKey, options);
+    // One bounded diagnostic observation, even on a no-game day.
+    const scores = await source.fetchScoreboard(dateKey, options);
+    const merged = mergeKboPages(month.games.filter(game => game.date === dateKey), scores.games);
+    const monthValue = monthlyScheduleSnapshot({ source, monthKey: dateKey.slice(0, 7), observedAt: now(), ...month });
+    const value = snapshot({ config, source, dateKey, mode: "game-window", observedAt: now(),
+      games: merged.games, anomalies: [...month.anomalies.filter(entry => entry.date === dateKey), ...scores.anomalies, ...merged.anomalies] });
+    const monthPublish = await saveMonthSchedule({ state, publisher, value: monthValue, nowMs: now() });
+    const publish = await saveAndPublish({ state, publisher, value, nowMs: now() });
+    const savedMonth = await state.getJson(`SCHEDULE#MONTH#${dateKey.slice(0, 7)}`);
+    const savedDay = await state.getJson(`LATEST#${dateKey}`);
+    if (savedMonth?.observedAt !== monthValue.observedAt || savedDay?.observedAt !== value.observedAt) {
+      throw new Error("State read-back did not match this collection");
+    }
+    return { skipped: false, date: dateKey, source: value.source, monthGameCount: month.games.length,
+      gameCount: value.games.length, anomalies: [...month.anomalies, ...value.anomalies], monthPublish, publish,
+      stateReadBackVerified: true, requestMetrics: source.getMetrics(),
+      sample: month.games.slice(0, 3).map(game => ({ date: game.date, scheduledAt: game.scheduledAt,
+        away: game.awayTeam.code, home: game.homeTeam.code, score: game.score, status: game.status })) };
+  } finally {
+    await state.releaseLease(leaseKey, owner);
+  }
 }
 
 export async function runPlanDay(context) {
@@ -95,11 +126,12 @@ export async function runPlanDay(context) {
   if (!acquired) return { skipped: true, reason: "lease-held", date: dateKey };
 
   try {
+    const fetchOptions = recoveryOptions({ state, leaseKey, owner, now, signal: context.signal });
     const monthlySchedule = typeof source.fetchScheduleMonth === "function"
-      ? await source.fetchScheduleMonth(dateKey, { signal: context.signal })
+      ? await source.fetchScheduleMonth(dateKey, fetchOptions)
       : null;
     const schedule = monthlySchedule == null
-      ? await source.fetchSchedule(dateKey, { signal: context.signal })
+      ? await source.fetchSchedule(dateKey, fetchOptions)
       : {
         games: monthlySchedule.games.filter((game) => game.date === dateKey),
         anomalies: monthlySchedule.anomalies.filter((entry) => entry.date === dateKey),
@@ -194,8 +226,19 @@ export async function runGameWindow(context) {
   if (!acquired) return { skipped: true, reason: "lease-held", date: dateKey };
 
   let nextLeaseRenewAt = startedAt + config.polling.leaseRenewMs;
+  const fetchOptions = recoveryOptions({ state, leaseKey, owner, now, signal, deadline, ttlMs: leaseTtlMs });
+  const log = context.log ?? (() => {});
+  const saveObservation = async (value) => {
+    const publish = await saveAndPublish({ state, publisher, value, nowMs: now() });
+    log({ level: value.anomalies.length ? "warn" : "info", event: "snapshot_saved",
+      observedAt: value.observedAt, gameCount: value.games.length, anomalyCount: value.anomalies.length,
+      published: publish.changed, requestMetrics: source.getMetrics(),
+      games: value.games.map(game => ({ id: game.externalId.kbo, status: game.status,
+        score: game.score, inning: game.inning, half: game.half,
+        resultObservedAt: game.meta?.resultObservedAt })) });
+  };
   try {
-    let scheduleResult = await source.fetchSchedule(dateKey, { signal });
+    let scheduleResult = await source.fetchSchedule(dateKey, fetchOptions);
     let scoreboardResult = { games: [], anomalies: [] };
     let combined = mergeKboPages(scheduleResult.games, scoreboardResult.games);
     let value = snapshot({
@@ -207,7 +250,7 @@ export async function runGameWindow(context) {
       games: combined.games,
       anomalies: [...scheduleResult.anomalies, ...combined.anomalies],
     });
-    await saveAndPublish({ state, publisher, value, nowMs: now() });
+    await saveObservation(value);
 
     const earliest = earliestScheduledAt(activeGames(scheduleResult.games));
     if (earliest == null) {
@@ -248,7 +291,7 @@ export async function runGameWindow(context) {
       }
 
       if (current >= nextScheduleAt) {
-        scheduleResult = await source.fetchSchedule(dateKey, { signal });
+        scheduleResult = await source.fetchSchedule(dateKey, fetchOptions);
         nextScheduleAt = now() + config.polling.scheduleRefreshMs;
         if (!scoreboardPolled) {
           const revisedEarliest = earliestScheduledAt(activeGames(scheduleResult.games));
@@ -265,11 +308,11 @@ export async function runGameWindow(context) {
       }
 
       if (!cancelledBeforeScoreboard && current >= nextScoreboardAt) {
-        scoreboardResult = await source.fetchScoreboard(dateKey, { signal });
+        scoreboardResult = await source.fetchScoreboard(dateKey, fetchOptions);
         scoreboardPolled = true;
         changed = true;
         const preview = mergeKboPages(scheduleResult.games, scoreboardResult.games);
-        if (allGamesTerminal(preview.games)) {
+        if (allGamesTerminal(preview.games) && !scoreboardResult.anomalies.length && !scheduleResult.anomalies.length) {
           if (terminalDetectedAt == null) {
             terminalDetectedAt = now();
             completedFinalChecks = 0;
@@ -291,7 +334,7 @@ export async function runGameWindow(context) {
                 ...combined.anomalies,
               ],
             });
-            await saveAndPublish({ state, publisher, value, nowMs: now() });
+            await saveObservation(value);
             return {
               skipped: false,
               reason: "final-checks-complete",
@@ -327,7 +370,7 @@ export async function runGameWindow(context) {
             ...combined.anomalies,
           ],
         });
-        await saveAndPublish({ state, publisher, value, nowMs: now() });
+        await saveObservation(value);
         const scheduleCancelled = scheduleResult.games.length > 0
           && scheduleResult.games.every((game) => ["CANCELLED", "POSTPONED"].includes(game.status));
         const liveObserved = scoreboardResult.games.some((game) => game.status === "LIVE");

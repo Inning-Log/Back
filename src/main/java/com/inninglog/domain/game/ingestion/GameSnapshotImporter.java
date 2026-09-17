@@ -79,6 +79,7 @@ public class GameSnapshotImporter {
             long samePairCount = incoming.stream().filter(other -> other.pairKey().equals(game.pairKey())).count();
             long gameId = upsert(game, samePairCount);
             if (!matched.add(gameId)) fail("MULTIPLE_ROWS_MATCH_SAME_GAME");
+            recordEffectiveState(gameId);
         }
         String scopeKey = (monthly ? "MONTH:" + month : "DAY:" + date);
         var previous = jdbc.query("select observed_at from game_sync_scopes where scope_key = ?",
@@ -184,6 +185,34 @@ public class GameSnapshotImporter {
         return key.getKey().longValue();
     }
 
+    /**
+     * The import lock serializes this compare-and-append operation across instances.
+     * Read back the effective row so stale or lower-priority input never becomes history.
+     */
+    private void recordEffectiveState(long gameId) {
+        Game current = games.find(gameId).orElseThrow();
+        var previous = jdbc.query("""
+                select status,current_inning,current_half,home_score,away_score
+                  from game_state_snapshots where game_id = ?
+                 order by observed_at desc, id desc limit 1
+                """, (rs, index) -> new EffectiveState(
+                        GameStatus.valueOf(rs.getString("status")),
+                        rs.getObject("current_inning", Integer.class), rs.getString("current_half"),
+                        rs.getObject("home_score", Integer.class), rs.getObject("away_score", Integer.class)), gameId)
+                .stream().findFirst();
+        EffectiveState next = new EffectiveState(current.status(), current.currentInning(), current.currentHalf(),
+                current.homeScore(), current.awayScore());
+        if (previous.isPresent() && previous.get().equals(next)) return;
+        jdbc.update("""
+                insert into game_state_snapshots(
+                    game_id,status,current_inning,current_half,home_score,away_score,
+                    observed_at,result_source,created_at)
+                values (?,?,?,?,?,?,?,?,?)
+                """, current.id(), current.status().name(), current.currentInning(), current.currentHalf(),
+                current.homeScore(), current.awayScore(), timestamp(current.resultObservedAt()),
+                current.resultSource(), timestamp(clock.instant()));
+    }
+
     private void update(Game old, Incoming value) {
         if (value.scheduleObservedAt().isAfter(old.scheduleObservedAt())) {
             jdbc.update("""
@@ -266,6 +295,7 @@ public class GameSnapshotImporter {
     }
     private static void fail(String code) { throw new GameImportException(code); }
     public record ImportResult(boolean duplicate, int gameCount, String eventKey) {}
+    private record EffectiveState(GameStatus status, Integer inning, String half, Integer homeScore, Integer awayScore) {}
     public record Incoming(int season, GameType type, LocalDate date, Integer sequence, Instant scheduledAt, Instant startedAt,
                            Instant endedAt, long home, long away, String stadium, Integer homeScore, Integer awayScore,
                            GameStatus status, Integer inning, String half, Instant scheduleObservedAt, Instant resultObservedAt,
