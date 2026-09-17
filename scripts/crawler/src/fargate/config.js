@@ -19,6 +19,7 @@ const DURATION_KEYS = new Set([
   "timeoutMs",
   "minHostIntervalMs",
   "retryBaseDelayMs",
+  "schemaRetryDelayMs",
   "planLeadMs",
   "scoreboardLeadMs",
   "scheduleRefreshMs",
@@ -69,6 +70,8 @@ const KNOWN_ENV = new Set([
   "CRAWLER_HARD_TIMEOUT_MINUTES",
   "CRAWLER_MAX_LOGICAL_REQUESTS_PER_HOUR",
   "CRAWLER_MAX_ATTEMPTS_PER_HOUR",
+  "CRAWLER_SCHEMA_RETRY_COUNT",
+  "CRAWLER_SCHEMA_RETRY_MINUTES",
 ]);
 
 const nullableString = z.string().min(1).nullable();
@@ -112,6 +115,8 @@ const configSchema = z.object({
     minHostIntervalMs: z.number().int().min(2_000).max(60_000),
     maxResponseBytes: z.number().int().min(64_000).max(2_097_152),
     retryCount: z.number().int().min(0).max(2),
+    schemaRetryCount: z.number().int().min(0).max(2).default(2),
+    schemaRetryDelayMs: z.number().int().min(120_000).max(300_000).default(120_000),
     retryBaseDelayMs: z.number().int().min(500).max(10_000),
     maxLogicalRequestsPerHour: z.number().int().min(2).max(120),
     maxAttemptsPerHour: z.number().int().min(2).max(180),
@@ -298,6 +303,8 @@ function applyEnvironment(config, env) {
     CRAWLER_HARD_TIMEOUT_MINUTES: ["polling.hardTimeoutMs", (value) => minutes("CRAWLER_HARD_TIMEOUT_MINUTES", value)],
     CRAWLER_MAX_LOGICAL_REQUESTS_PER_HOUR: ["request.maxLogicalRequestsPerHour", Number],
     CRAWLER_MAX_ATTEMPTS_PER_HOUR: ["request.maxAttemptsPerHour", Number],
+    CRAWLER_SCHEMA_RETRY_COUNT: ["request.schemaRetryCount", Number],
+    CRAWLER_SCHEMA_RETRY_MINUTES: ["request.schemaRetryDelayMs", (value) => minutes("CRAWLER_SCHEMA_RETRY_MINUTES", value)],
   };
 
   const output = structuredClone(config);

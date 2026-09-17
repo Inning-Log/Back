@@ -46,9 +46,12 @@ definition = {key: previous[key] for key in fields if key in previous}
 container = next(c for c in definition["containerDefinitions"] if c["name"] == "crawler")
 container["image"] = image
 environment = {e["name"]: e["value"] for e in container.get("environment", [])}
+# Scheduler's EcsParameters requires a full ARN, not a family name or family:revision.
+# Pin the child game task to this same revision; fail if a concurrent registration races us.
+expected_revision = previous["taskDefinitionArn"].rsplit(":", 1)[0] + ":" + str(previous["revision"] + 1)
 environment.update(CRAWLER_PROFILE="kbo-live", CRAWLER_KILL_SWITCH="false", CRAWLER_ENABLED="true",
                    CRAWLER_OPERATOR_CONTACT="https://github.com/Inning-Log/Back",
-                   CRAWLER_ECS_TASK_DEFINITION=FAMILY)
+                   CRAWLER_ECS_TASK_DEFINITION=expected_revision)
 # Keep approval metadata truthful: this is the operator-requested MVP mode.
 for key in list(environment):
     if key.startswith("CRAWLER_AUTH_") or key == "CRAWLER_ROBOTS_EXCEPTION_GRANTED":
@@ -56,6 +59,8 @@ for key in list(environment):
 container["environment"] = [{"name": k, "value": v} for k, v in environment.items()]
 definition["runtimePlatform"] = {"cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX"}
 revision = aws("ecs", "register-task-definition", "--cli-input-json", json.dumps(definition))["taskDefinition"]["taskDefinitionArn"]
+if revision != expected_revision:
+    sys.exit("Concurrent task registration detected; do not deploy this revision. Re-run after checking the latest definition.")
 print(json.dumps({"image": image, "previousRevision": previous["taskDefinitionArn"], "revision": revision}), flush=True)
 network = {"awsvpcConfiguration": {
     "subnets": environment["CRAWLER_ECS_SUBNET_IDS"].split(","),

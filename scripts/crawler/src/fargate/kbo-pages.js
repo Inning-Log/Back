@@ -307,9 +307,11 @@ export function parseKboScoreboardPage(html, targetDate, options = {}) {
   const anomalies = [];
   for (const [cardIndex, element] of cards.entries()) {
     const card = $(element);
+    let stage = "teams";
     try {
       const awayTeam = strictTeam(card.find(".leftTeam .teamT").first().text(), `scoreboard card ${cardIndex}`);
       const homeTeam = strictTeam(card.find(".rightTeam .teamT").first().text(), `scoreboard card ${cardIndex}`);
+      stage = "scores";
       const score = {
         away: normalizeScore(clean(card.find(".leftTeam .score").first().text())),
         home: normalizeScore(clean(card.find(".rightTeam .score").first().text())),
@@ -320,18 +322,21 @@ export function parseKboScoreboardPage(html, targetDate, options = {}) {
         throw new KboPageSchemaError(`score label/table mismatch in scoreboard card ${cardIndex}`);
       }
 
+      stage = "status";
       const flagText = clean(card.find(".flag").first().text());
       const inning = normalizeInning(flagText);
       const status = scoreboardStatus(flagText, inning);
       if (status === "UNKNOWN") {
         throw new KboPageSchemaError(`unknown game state in scoreboard card ${cardIndex}: ${flagText}`);
       }
+      stage = "scheduled-time";
       const place = card.find(".place").first();
       const timeText = clean(place.find("span").first().text());
       const placeText = clean(place.clone().find("span").remove().end().text());
       if (!/^\d{1,2}:\d{2}$/.test(timeText)) {
         throw new KboPageSchemaError(`invalid scheduled time in scoreboard card ${cardIndex}`);
       }
+      stage = "identity";
       const gameId = cardGameId($, card, targetDate);
       const hideLiveFields = status !== "LIVE";
       const game = normalizeGameSnapshot({
@@ -359,6 +364,15 @@ export function parseKboScoreboardPage(html, targetDate, options = {}) {
       anomalies.push({
         type: "INVALID_SCOREBOARD_CARD",
         card: cardIndex,
+        stage,
+        away: clean(card.find(".leftTeam .teamT").first().text()).slice(0, 40),
+        home: clean(card.find(".rightTeam .teamT").first().text()).slice(0, 40),
+        awayScore: clean(card.find(".leftTeam .score").first().text()).slice(0, 20),
+        homeScore: clean(card.find(".rightTeam .score").first().text()).slice(0, 20),
+        pointScores: card.find("table.tScore tbody tr .point").toArray().slice(0, 4)
+          .map(cell => clean($(cell).text()).slice(0, 20)),
+        flag: clean(card.find(".flag").first().text()).slice(0, 60),
+        time: clean(card.find(".place span").first().text()).slice(0, 30),
         message: String(error.message ?? error).slice(0, 200),
       });
     }
@@ -367,6 +381,39 @@ export function parseKboScoreboardPage(html, targetDate, options = {}) {
     throw new KboPageSchemaError("Every KBO scoreboard card failed validation", { anomalies });
   }
   return { games, anomalies, pageDate };
+}
+
+// Retain only the public scoreboard fragment, not headers, cookies, form state
+// or scripts. A bounded fragment can be replayed through the same parser.
+export function scoreboardEvidence(html) {
+  const $ = load(String(html ?? ""));
+  const records = $("#cphContents_cphContents_cphContents_udpRecord");
+  const recordCount = records.length;
+  if (recordCount !== 1) return { recordCount, cardCount: 0, replayable: false, html: null };
+  const record = records.first().clone();
+  const cardCount = record.find(".smsScore").length;
+  record.find("a").each((_, element) => {
+    const link = $(element);
+    const id = extractGameId(link.attr("href")) ?? extractGameId(link.attr("onclick"));
+    link.removeAttr("href onclick");
+    if (id) link.attr("href", `/Schedule/GameCenter/Main.aspx?gameId=${id}`);
+  });
+  record.find("script,style,input,textarea,select,form,iframe,object,embed,img,link,meta").remove();
+  record.find("*").addBack().each((_, element) => {
+    const node = $(element);
+    for (const attribute of Object.keys(element.attribs ?? {})) {
+      if (!["class", "id"].includes(attribute) && !(element.name === "a" && attribute === "href")) {
+        node.removeAttr(attribute);
+      }
+    }
+    node.contents().filter((_, child) => child.type === "comment").remove();
+  });
+  const sanitized = `<html><body>${$.html(record)}</body></html>`;
+  const limit = 48_000;
+  const truncated = Buffer.byteLength(sanitized, "utf8") > limit;
+  // Retain a valid UTF-8 string under the byte bound; truncated captures are not replay fixtures.
+  const fragment = truncated ? Buffer.from(sanitized).subarray(0, limit - 3).toString("utf8") : sanitized;
+  return { recordCount, cardCount, truncated, replayable: !truncated, html: fragment };
 }
 
 function identityKey(game) {

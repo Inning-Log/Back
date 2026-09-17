@@ -37,6 +37,9 @@ base:
     minHostIntervalMs: 2s
     maxResponseBytes: 2097152
     retryCount: 1
+    # Parse failures only: at most two fresh observations, two minutes apart.
+    schemaRetryCount: 2
+    schemaRetryDelayMs: 2m
     retryBaseDelayMs: 1s
     maxLogicalRequestsPerHour: 40
     maxAttemptsPerHour: 60
