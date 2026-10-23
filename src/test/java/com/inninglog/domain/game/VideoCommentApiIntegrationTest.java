@@ -14,10 +14,12 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
 @Transactional
+@TestPropertySource(properties = "app.notifications.frontend-origin=https://inning-log.vercel.app")
 class VideoCommentApiIntegrationTest extends GameIntegrationSupport {
     @Autowired VideoRepository videos;
     @Autowired FriendshipRepository friendships;
@@ -41,6 +43,9 @@ class VideoCommentApiIntegrationTest extends GameIntegrationSupport {
         assertThat(data.path("recordId").stringValue()).isEqualTo(Long.toString(fixture.recordId()));
         assertThat(data.path("commentId").stringValue()).isEqualTo(Long.toString(id));
         assertThat(data.path("ownerUserId").stringValue()).isEqualTo(fixture.owner().getId().toString());
+        assertThat(data.path("link").stringValue()).isEqualTo("https://inning-log.vercel.app/timeline/history/"
+                + data.path("gameId").stringValue() + "?recordId=" + fixture.recordId()
+                + "&videoId=" + fixture.videoId() + "&commentId=" + id);
         assertThat(payload).doesNotContain("멋진 영상");
 
         mvc.perform(get(listPath(fixture.videoId())).with(as(fixture.owner())))
@@ -197,6 +202,131 @@ class VideoCommentApiIntegrationTest extends GameIntegrationSupport {
         long videoId = videos.insertPending(recordId, "test/" + UUID.randomUUID(), "video/mp4", 10, NOW);
         videos.markReady(videoId, NOW);
         return new Fixture(owner, friend, recordId, videoId);
+    }
+
+    @Test
+    void repliesUseExistingApiAndNotifyOnlyParentAuthorWithIdempotentRetry() throws Exception {
+        var fixture = fixture(true);
+        long parent = create(fixture.friend(), fixture.videoId(), UUID.randomUUID().toString(), "원댓글", 201).path("id").longValue();
+        var third = user();
+        var relationship = Friendship.request(fixture.owner(), third, NOW);
+        relationship.accept(NOW);
+        friendships.saveAndFlush(relationship);
+        String clientId = UUID.randomUUID().toString();
+        var reply = reply(third, fixture.videoId(), clientId, "  답글  ", parent, 201);
+        long id = reply.path("id").longValue();
+        assertThat(reply.path("parentCommentId").longValue()).isEqualTo(parent);
+        assertThat(reply.path("content").stringValue()).isEqualTo("답글");
+        assertThat(reply(third, fixture.videoId(), clientId, "답글", parent, 200).path("id").longValue()).isEqualTo(id);
+        assertThat(notificationCount(fixture.owner())).isEqualTo(1);
+        assertThat(notificationCount(fixture.friend())).isEqualTo(1);
+        assertThat(outboxCount(fixture.friend())).isEqualTo(1);
+        assertThat(notificationCount(third)).isZero();
+        var data = mapper.readTree(jdbc.queryForObject("select data_json from notifications where user_id = ?", String.class, fixture.friend().getId()));
+        assertThat(data.path("parentCommentId").stringValue()).isEqualTo(Long.toString(parent));
+        assertThat(data.path("commentId").stringValue()).isEqualTo(Long.toString(id));
+        assertThat(data.path("ownerUserId").stringValue()).isEqualTo(fixture.owner().getId().toString());
+        assertThat(data.path("link").stringValue()).isEqualTo("https://inning-log.vercel.app/timeline/"
+                + fixture.owner().getId() + "?gameId=" + data.path("gameId").stringValue()
+                + "&recordId=" + fixture.recordId() + "&videoId=" + fixture.videoId() + "&commentId=" + id);
+        mvc.perform(get(listPath(fixture.videoId())).with(as(fixture.owner())).param("size", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalCount").value(2))
+                .andExpect(jsonPath("$.items[0].parentCommentId").isEmpty()).andExpect(jsonPath("$.hasNext").value(true));
+        mvc.perform(get(commentPath(id)).with(as(fixture.friend())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.parentCommentId").value(parent));
+        mvc.perform(patch(commentPath(id)).with(as(third)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"답글 수정\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.parentCommentId").value(parent));
+        assertThat(reply(third, fixture.videoId(), clientId, "답글", parent, 200).path("content").stringValue()).isEqualTo("답글 수정");
+        reply(fixture.friend(), fixture.videoId(), UUID.randomUUID().toString(), "내 댓글에 답글", parent, 201);
+        assertThat(notificationCount(fixture.friend())).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsCrossVideoNestedMissingAndInvalidParentsAndDifferentIdempotencyParent() throws Exception {
+        var fixture = fixture(true);
+        long first = create(fixture.owner(), fixture.videoId(), UUID.randomUUID().toString(), "첫 댓글", 201).path("id").longValue();
+        long second = create(fixture.owner(), fixture.videoId(), UUID.randomUUID().toString(), "둘째 댓글", 201).path("id").longValue();
+        String client = UUID.randomUUID().toString();
+        long reply = reply(fixture.friend(), fixture.videoId(), client, "답글", first, 201).path("id").longValue();
+        reply(fixture.friend(), fixture.videoId(), client, "답글", second, 409);
+        create(fixture.friend(), fixture.videoId(), client, "답글", 409);
+        reply(fixture.friend(), fixture.videoId(), UUID.randomUUID().toString(), "중첩", reply, 400);
+        reply(fixture.friend(), fixture.videoId(), UUID.randomUUID().toString(), "없음", Long.MAX_VALUE, 404);
+        reply(fixture.friend(), fixture.videoId(), UUID.randomUUID().toString(), "음수", -1, 400);
+        reply(fixture.friend(), fixture.videoId(), UUID.randomUUID().toString(), "영", 0, 400);
+        videos.delete(fixture.videoId(), NOW);
+        long replacement = videos.insertPending(fixture.recordId(), "test/" + UUID.randomUUID(), "video/mp4", 10, NOW);
+        videos.markReady(replacement, NOW);
+        reply(fixture.friend(), replacement, UUID.randomUUID().toString(), "다른 영상", first, 404);
+    }
+
+    @Test
+    void deletingRootRemovesRepliesAndCannotRecreateOrEditDeletedThread() throws Exception {
+        var fixture = fixture(true);
+        long parent = create(fixture.friend(), fixture.videoId(), UUID.randomUUID().toString(), "원댓글", 201).path("id").longValue();
+        long reply = reply(fixture.owner(), fixture.videoId(), UUID.randomUUID().toString(), "답글", parent, 201).path("id").longValue();
+        mvc.perform(delete(commentPath(parent)).with(as(fixture.friend()))).andExpect(status().isNoContent());
+        mvc.perform(delete(commentPath(parent)).with(as(fixture.friend()))).andExpect(status().isNoContent());
+        mvc.perform(get(commentPath(reply)).with(as(fixture.owner()))).andExpect(status().isNotFound());
+        mvc.perform(patch(commentPath(reply)).with(as(fixture.owner())).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"부활 불가\"}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(get(listPath(fixture.videoId())).with(as(fixture.owner())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalCount").value(0));
+        reply(fixture.owner(), fixture.videoId(), UUID.randomUUID().toString(), "삭제 후 답글", parent, 404);
+        assertThat(jdbc.queryForObject("select content from video_comments where id = ?", String.class, reply)).isEqualTo("[삭제됨]");
+    }
+
+    @Test
+    void deletingReplyPreservesParentAndOtherReplies() throws Exception {
+        var fixture = fixture(true);
+        long parent = create(fixture.owner(), fixture.videoId(), UUID.randomUUID().toString(), "원댓글", 201).path("id").longValue();
+        String client = UUID.randomUUID().toString();
+        long reply = reply(fixture.friend(), fixture.videoId(), client, "삭제 답글", parent, 201).path("id").longValue();
+        reply(fixture.friend(), fixture.videoId(), UUID.randomUUID().toString(), "유지 답글", parent, 201);
+        mvc.perform(delete(commentPath(reply)).with(as(fixture.owner()))).andExpect(status().isNotFound());
+        mvc.perform(delete(commentPath(reply)).with(as(fixture.friend()))).andExpect(status().isNoContent());
+        mvc.perform(get(listPath(fixture.videoId())).with(as(fixture.owner())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalCount").value(2));
+        reply(fixture.friend(), fixture.videoId(), client, "삭제 답글", parent, 409);
+    }
+
+    @Test
+    void deletedParentAuthorHidesThreadAndAccessLostParentAuthorReceivesNoNotification() throws Exception {
+        var fixture = fixture(true);
+        long parent = create(fixture.friend(), fixture.videoId(), UUID.randomUUID().toString(), "원댓글", 201).path("id").longValue();
+        jdbc.update("delete from friendships where requester_id = ? and receiver_id = ?", fixture.owner().getId(), fixture.friend().getId());
+        long reply = reply(fixture.owner(), fixture.videoId(), UUID.randomUUID().toString(), "답글", parent, 201).path("id").longValue();
+        assertThat(notificationCount(fixture.friend())).isZero();
+        jdbc.update("update app_users set deleted_at = ? where id = ?", Timestamp.from(NOW), fixture.friend().getId());
+        mvc.perform(get(listPath(fixture.videoId())).with(as(fixture.owner())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalCount").value(0));
+        mvc.perform(get(commentPath(reply)).with(as(fixture.owner()))).andExpect(status().isNotFound());
+        reply(fixture.owner(), fixture.videoId(), UUID.randomUUID().toString(), "답글", parent, 404);
+    }
+
+    @Test
+    void explicitNullParentRetainsRootRequestAndReplyPreferenceStillStoresInbox() throws Exception {
+        var fixture = fixture(true);
+        String client = UUID.randomUUID().toString();
+        var result = mvc.perform(post(listPath(fixture.videoId())).with(as(fixture.friend())).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"clientCommentId\":\"" + client + "\",\"content\":\"원댓글\",\"parentCommentId\":null}"))
+                .andExpect(status().isCreated()).andReturn();
+        long parent = mapper.readTree(result.getResponse().getContentAsString()).path("id").longValue();
+        assertThat(create(fixture.friend(), fixture.videoId(), client, "원댓글", 200).path("id").longValue()).isEqualTo(parent);
+        jdbc.update("insert into notification_settings(user_id,social_reaction_enabled,updated_at) values (?,false,?)",
+                fixture.friend().getId(), Timestamp.from(NOW));
+        reply(fixture.owner(), fixture.videoId(), UUID.randomUUID().toString(), "답글", parent, 201);
+        assertThat(notificationCount(fixture.friend())).isEqualTo(1);
+        assertThat(outboxCount(fixture.friend())).isZero();
+    }
+
+    private JsonNode reply(User author, long videoId, String clientId, String content, long parent, int expected) throws Exception {
+        var response = mvc.perform(post(listPath(videoId)).with(as(author)).contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("clientCommentId", clientId, "content", content, "parentCommentId", parent))))
+                .andExpect(status().is(expected)).andReturn();
+        return mapper.readTree(response.getResponse().getContentAsString());
     }
 
     private JsonNode create(User author, long videoId, String clientId, String content, int expected) throws Exception {

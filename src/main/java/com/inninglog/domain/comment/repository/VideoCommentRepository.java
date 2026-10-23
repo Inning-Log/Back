@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.LongStream;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -20,10 +21,16 @@ public class VideoCommentRepository {
             select c.*, u.username, u.nickname, u.profile_image_url from video_comments c
             join app_users u on u.id = c.author_user_id and u.deleted_at is null
             """;
+    private static final String PARENT_VISIBLE = """
+             and (c.parent_comment_id is null or exists (
+                 select 1 from video_comments p join app_users pu on pu.id = p.author_user_id
+                 where p.id = c.parent_comment_id and p.video_id = c.video_id
+                   and p.deleted_at is null and pu.deleted_at is null))
+            """;
     private static final RowMapper<Comment> MAPPER = (rs, row) -> new Comment(
             rs.getLong("id"), rs.getLong("video_id"), rs.getLong("author_user_id"),
             rs.getString("request_fingerprint"), rs.getString("content"), instant(rs, "created_at"),
-            instant(rs, "updated_at"), instant(rs, "deleted_at"),
+            instant(rs, "updated_at"), instant(rs, "deleted_at"), rs.getObject("parent_comment_id", Long.class),
             new CommentResponse.Author(rs.getLong("author_user_id"), rs.getString("username"),
                     rs.getString("nickname"), rs.getString("profile_image_url")));
 
@@ -51,10 +58,14 @@ public class VideoCommentRepository {
 
     /** Matches user ordering in friendship creation and locks parents before checking them again. */
     public void lockParents(long viewerId, Video video) {
-        long low = Math.min(viewerId, video.ownerId());
-        long high = Math.max(viewerId, video.ownerId());
-        jdbc.queryForList("select id from app_users where id = ? for update", Long.class, low);
-        if (high != low) jdbc.queryForList("select id from app_users where id = ? for update", Long.class, high);
+        lockParents(viewerId, video, video.ownerId());
+    }
+
+    public void lockParents(long viewerId, Video video, long parentAuthorId) {
+        // Lock a reply recipient before any content row, in the same global user ordering.
+        // This also serializes account deletion and friendship changes for the recipient.
+        LongStream.of(viewerId, video.ownerId(), parentAuthorId).distinct().sorted().forEach(id ->
+                jdbc.queryForList("select id from app_users where id = ? for update", Long.class, id));
         if (viewerId != video.ownerId()) {
             jdbc.queryForList("""
                     select id from friendships where (requester_id = ? and receiver_id = ?)
@@ -76,7 +87,8 @@ public class VideoCommentRepository {
     }
 
     public List<Comment> page(long videoId, long afterId, int limit) {
-        return jdbc.query(SELECT + " where c.video_id = ? and c.deleted_at is null and c.id > ? order by c.id limit ?",
+        return jdbc.query(SELECT + " where c.video_id = ? and c.deleted_at is null" + PARENT_VISIBLE
+                        + " and c.id > ? order by c.id limit ?",
                 MAPPER, videoId, afterId, limit);
     }
 
@@ -84,17 +96,18 @@ public class VideoCommentRepository {
         return jdbc.queryForObject("""
                 select count(*) from video_comments c join app_users u on u.id = c.author_user_id
                 where c.video_id = ? and c.deleted_at is null and u.deleted_at is null
-                """, Long.class, videoId);
+                """ + PARENT_VISIBLE, Long.class, videoId);
     }
 
-    public long insert(long videoId, long authorId, UUID clientId, String fingerprint, String content, Instant now) {
+    public long insert(long videoId, long authorId, UUID clientId, String fingerprint, String content,
+                       Long parentCommentId, Instant now) {
         var holder = new GeneratedKeyHolder();
         jdbc.update(connection -> {
             var statement = connection.prepareStatement("""
-                    insert into video_comments(video_id,author_user_id,client_comment_id,request_fingerprint,content,created_at,updated_at)
-                    values (?,?,?,?,?,?,?)
+                    insert into video_comments(video_id,author_user_id,client_comment_id,request_fingerprint,content,parent_comment_id,created_at,updated_at)
+                    values (?,?,?,?,?,?,?,?)
                     """, new String[]{"id"});
-            Object[] values = {videoId, authorId, clientId.toString(), fingerprint, content, timestamp(now), timestamp(now)};
+            Object[] values = {videoId, authorId, clientId.toString(), fingerprint, content, parentCommentId, timestamp(now), timestamp(now)};
             for (int i = 0; i < values.length; i++) statement.setObject(i + 1, values[i]);
             return statement;
         }, holder);
@@ -108,15 +121,17 @@ public class VideoCommentRepository {
 
     public void delete(long id, Instant now) {
         // Keep only an empty tombstone for idempotency; do not retain deleted text.
-        jdbc.update("update video_comments set content = '[삭제됨]', deleted_at = ?, updated_at = ? where id = ? and deleted_at is null",
-                timestamp(now), timestamp(now), id);
+        jdbc.update("""
+                update video_comments set content = '[삭제됨]', deleted_at = ?, updated_at = ?
+                where (id = ? or parent_comment_id = ?) and deleted_at is null
+                """, timestamp(now), timestamp(now), id, id);
     }
 
     public record Video(long id, long recordId, long logId, long gameId, long ownerId) {}
     public record Comment(long id, long videoId, long authorId, String fingerprint, String content,
-                          Instant createdAt, Instant updatedAt, Instant deletedAt, CommentResponse.Author author) {
+                          Instant createdAt, Instant updatedAt, Instant deletedAt, Long parentCommentId, CommentResponse.Author author) {
         public CommentResponse response(long viewerId) {
-            return new CommentResponse(id, videoId, author, content, createdAt, updatedAt, authorId == viewerId);
+            return new CommentResponse(id, videoId, author, content, createdAt, updatedAt, authorId == viewerId, parentCommentId);
         }
     }
 }

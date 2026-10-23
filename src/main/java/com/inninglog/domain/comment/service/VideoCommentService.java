@@ -61,20 +61,25 @@ public class VideoCommentService {
     @Transactional
     public Created create(String subject, long videoId, CommentCreateRequest request) {
         long authorId = access.require(subject, false).getId();
-        var video = lockAndRequireVisible(subject, authorId, videoId);
+        var video = lockAndRequireVisible(subject, authorId, videoId, request.parentCommentId());
+        Comment parent = request.parentCommentId() == null ? null : requireReplyParent(request.parentCommentId(), videoId);
         String content = normalize(request.content());
         String fingerprint = fingerprint(content);
         var existing = comments.findByClient(videoId, authorId, request.clientCommentId()).orElse(null);
         if (existing != null) {
-            if (!existing.fingerprint().equals(fingerprint))
+            if (!existing.fingerprint().equals(fingerprint)
+                    || !java.util.Objects.equals(existing.parentCommentId(), request.parentCommentId()))
                 throw GameException.conflict("COMMENT_REQUEST_CONFLICT", "같은 요청 식별자에 다른 댓글을 사용할 수 없습니다.");
             if (existing.deletedAt() != null)
                 throw GameException.conflict("COMMENT_ALREADY_DELETED", "이미 삭제한 댓글 요청입니다.");
             return new Created(existing.response(authorId), false);
         }
-        long id = comments.insert(videoId, authorId, request.clientCommentId(), fingerprint, content, clock.instant());
+        long id = comments.insert(videoId, authorId, request.clientCommentId(), fingerprint, content,
+                request.parentCommentId(), clock.instant());
         var created = requireComment(id, false);
-        if (authorId != video.ownerId()) notifyOwner(video, created);
+        long recipient = parent == null ? video.ownerId() : parent.authorId();
+        if (authorId != recipient && timelines.visibleOwner(recipient, video.ownerId()).isPresent())
+            notifyRecipient(video, created, recipient);
         return new Created(created.response(authorId), true);
     }
 
@@ -99,8 +104,13 @@ public class VideoCommentService {
     }
 
     private Video lockAndRequireVisible(String subject, long viewer, long videoId) {
+        return lockAndRequireVisible(subject, viewer, videoId, null);
+    }
+
+    private Video lockAndRequireVisible(String subject, long viewer, long videoId, Long parentId) {
         Video initial = requireVisible(viewer, videoId);
-        comments.lockParents(viewer, initial);
+        if (parentId == null) comments.lockParents(viewer, initial);
+        else comments.lockParents(viewer, initial, requireReplyParent(parentId, videoId).authorId());
         // Re-read after waiting for locks: deletion, unfriend and upload replacement must win if committed first.
         // JDBC bypasses a JPA user entity cached before an account-deletion transaction committed.
         if (!comments.activeUser(viewer)) throw GameException.notFound("USER_NOT_FOUND");
@@ -114,11 +124,23 @@ public class VideoCommentService {
     }
 
     private Comment requireComment(long id, boolean includeDeleted) {
-        return comments.find(id).filter(c -> includeDeleted || c.deletedAt() == null)
+        return comments.find(id).filter(c -> includeDeleted || (c.deletedAt() == null &&
+                        (c.parentCommentId() == null || comments.find(c.parentCommentId())
+                                .filter(p -> p.deletedAt() == null).isPresent())))
                 .orElseThrow(() -> GameException.notFound("COMMENT_NOT_FOUND"));
     }
 
-    private void notifyOwner(Video video, Comment comment) {
+    private Comment requireReplyParent(long parentId, long videoId) {
+        if (parentId <= 0) throw new IllegalArgumentException("parentCommentId는 양수여야 합니다.");
+        Comment parent = requireComment(parentId, false);
+        if (parent.videoId() != videoId) throw GameException.notFound("COMMENT_NOT_FOUND");
+        if (parent.parentCommentId() != null)
+            throw new GameException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "COMMENT_REPLY_DEPTH_EXCEEDED", "답글에는 답글을 작성할 수 없습니다.");
+        return parent;
+    }
+
+    private void notifyRecipient(Video video, Comment comment, long recipient) {
         var data = new LinkedHashMap<String, String>();
         data.put("screen", "VIDEO_COMMENTS");
         data.put("videoId", Long.toString(video.id()));
@@ -127,12 +149,16 @@ public class VideoCommentService {
         data.put("ownerUserId", Long.toString(video.ownerId()));
         data.put("commentId", Long.toString(comment.id()));
         data.put("actorUserId", Long.toString(comment.authorId()));
-        String link = links.video(video.gameId(), video.recordId(), video.id(), comment.id());
+        boolean reply = comment.parentCommentId() != null;
+        if (reply) data.put("parentCommentId", Long.toString(comment.parentCommentId()));
+        String link = links.video(video.gameId(), video.recordId(), video.id(), comment.id(), video.ownerId(), recipient);
         if (link != null) data.put("link", link);
         // Do not copy private comment text into push history or lock-screen previews.
-        notifications.enqueueToUser("video-comment:" + comment.id() + ":created", video.ownerId(),
-                new PushNotification(NotificationType.TIMELINE_COMMENT, "영상에 새 댓글이 달렸어요",
-                        comment.author().nickname() + "님이 회원님의 영상에 댓글을 남겼습니다.", data));
+        notifications.enqueueToUser("video-comment:" + comment.id() + ":created", recipient,
+                new PushNotification(NotificationType.TIMELINE_COMMENT,
+                        reply ? "댓글에 새 답글이 달렸어요" : "영상에 새 댓글이 달렸어요",
+                        comment.author().nickname() + (reply ? "님이 회원님의 댓글에 답글을 남겼습니다."
+                                : "님이 회원님의 영상에 댓글을 남겼습니다."), data));
     }
 
     private static String normalize(String content) {

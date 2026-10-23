@@ -12,6 +12,10 @@ class NotificationLinkServiceTest {
         assertThat(links.game(12L)).isEqualTo("https://inning-log.vercel.app/timeline?gameId=12");
         assertThat(links.video(2L, 3L, 4L, 5L))
                 .isEqualTo("https://inning-log.vercel.app/timeline/history/2?recordId=3&videoId=4&commentId=5");
+        assertThat(links.video(2L, 3L, 4L, 5L, 7L, 7L))
+                .isEqualTo("https://inning-log.vercel.app/timeline/history/2?recordId=3&videoId=4&commentId=5");
+        assertThat(links.video(2L, 3L, 4L, 5L, 7L, 8L))
+                .isEqualTo("https://inning-log.vercel.app/timeline/7?gameId=2&recordId=3&videoId=4&commentId=5");
         assertThat(links.friendshipData(Map.of("friendshipId", "6"), true))
                 .containsEntry("friendshipId", "6").containsEntry("link", "https://inning-log.vercel.app/mypage/friends");
     }
@@ -20,6 +24,7 @@ class NotificationLinkServiceTest {
     void unsetOriginOmitsLinksWithoutDroppingEventData() {
         var links = new NotificationLinkService("");
         assertThat(links.game(1L)).isNull();
+        assertThat(links.video(2L, 3L, 4L, 5L, 7L, 8L)).isNull();
         assertThat(links.friendshipData(Map.of("friendshipId", "1"), false))
                 .isEqualTo(Map.of("friendshipId", "1"));
     }
