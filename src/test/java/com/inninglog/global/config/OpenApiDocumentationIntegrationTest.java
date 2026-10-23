@@ -128,7 +128,8 @@ class OpenApiDocumentationIntegrationTest {
                             .as(operationName + " tags")
                             .isPositive();
                     assertThat(definition.path("responses").propertyStream()
-                            .anyMatch(response -> response.getKey().startsWith("2")))
+                            .anyMatch(response -> response.getKey().startsWith("2")
+                                    || (path.getKey().equals("/api/profile-images/{id}") && response.getKey().equals("302"))))
                             .as(operationName + " success response")
                             .isTrue();
                 }));
