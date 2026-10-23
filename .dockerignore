@@ -6,6 +6,8 @@ out
 *.iml
 .idea
 .vscode
+.env
+.env.*
 *.log
 *firebase-adminsdk*.json
 *adminsdk*.json
