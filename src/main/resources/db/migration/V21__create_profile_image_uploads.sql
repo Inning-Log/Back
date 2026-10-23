@@ -10,4 +10,3 @@ create table profile_image_uploads (
 );
 create index idx_profile_image_uploads_user on profile_image_uploads(user_id);
 create index idx_profile_image_uploads_expiry on profile_image_uploads(expires_at);
-

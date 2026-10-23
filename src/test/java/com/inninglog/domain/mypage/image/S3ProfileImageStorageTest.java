@@ -82,4 +82,3 @@ class S3ProfileImageStorageTest {
                         AbortableInputStream.create(new ByteArrayInputStream(bytes))));
     }
 }
-

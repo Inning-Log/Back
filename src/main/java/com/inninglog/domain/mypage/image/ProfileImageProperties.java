@@ -17,4 +17,3 @@ public record ProfileImageProperties(DataSize maxSize, Duration uploadUrlTtl, Du
             throw new IllegalArgumentException("Profile image URL TTL must be within 15 minutes.");
     }
 }
-

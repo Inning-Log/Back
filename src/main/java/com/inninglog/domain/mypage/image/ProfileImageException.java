@@ -14,4 +14,3 @@ public class ProfileImageException extends RuntimeException {
     public HttpStatus status() { return status; }
     public String code() { return code; }
 }
-

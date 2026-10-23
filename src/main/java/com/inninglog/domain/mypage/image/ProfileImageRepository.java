@@ -58,4 +58,3 @@ public class ProfileImageRepository {
                 """, (r, n) -> r.getObject("id", UUID.class), Timestamp.from(before));
     }
 }
-

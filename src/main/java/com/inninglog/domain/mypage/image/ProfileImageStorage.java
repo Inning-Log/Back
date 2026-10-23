@@ -12,4 +12,3 @@ public interface ProfileImageStorage {
     void deleteUpload(UUID id);
     void deletePublished(UUID id);
 }
-

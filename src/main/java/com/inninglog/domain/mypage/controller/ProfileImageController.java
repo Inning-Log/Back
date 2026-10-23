@@ -31,4 +31,3 @@ public class ProfileImageController {
                 .cacheControl(CacheControl.noStore()).build();
     }
 }
-

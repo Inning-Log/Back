@@ -50,4 +50,3 @@ public class ProfileImageProcessor {
                 "정상적인 JPEG 또는 PNG 이미지가 아닙니다.");
     }
 }
-

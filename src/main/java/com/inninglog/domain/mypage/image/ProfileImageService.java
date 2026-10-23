@@ -134,4 +134,3 @@ public class ProfileImageService {
         return new ProfileImageException(status, code, message);
     }
 }
-

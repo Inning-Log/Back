@@ -296,4 +296,3 @@ class ProfileImageIntegrationTest {
         @Bean @Primary FakeStorage fakeProfileImageStorage() { return new FakeStorage(); }
     }
 }
-
