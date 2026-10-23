@@ -15,12 +15,18 @@ import org.junit.jupiter.api.Test;
 class FriendRequestReadMigrationTest {
     @Test
     void upgradeReadsHistoricalResolvedRequestsAndPreservesCurrentPendingAndOtherAlerts() throws Exception {
-        String url = "jdbc:h2:mem:friend_read_" + UUID.randomUUID().toString().replace("-", "")
+        String migrationSuffix = UUID.randomUUID().toString().replace("-", "");
+        String configuredUrl = System.getenv("MIGRATION_TEST_JDBC_URL");
+        String url = configuredUrl != null ? configuredUrl : "jdbc:h2:mem:friend_read_" + migrationSuffix
                 + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
-        try (Connection connection = DriverManager.getConnection(url, "sa", "")) {
+        String user = configuredUrl == null ? "sa" : System.getenv().getOrDefault("MIGRATION_TEST_DB_USER", "postgres");
+        String password = configuredUrl == null ? "" : System.getenv().getOrDefault("MIGRATION_TEST_DB_PASSWORD", "");
+        String schema = configuredUrl == null ? "public" : "friend_read_" + migrationSuffix;
+        try (Connection connection = DriverManager.getConnection(url, user, password)) {
             // H2 2.4 CHECK expressions keep their creating session; retain it across both migrations.
             var dataSource = new org.springframework.jdbc.datasource.SingleConnectionDataSource(connection, true);
-            Flyway.configure().dataSource(dataSource).target("19").load().migrate();
+            Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).target("19").load().migrate();
+            connection.setSchema(schema);
             try (Statement sql = connection.createStatement()) {
                 for (int id = 1001; id <= 1006; id++) {
                     sql.executeUpdate("""
@@ -51,7 +57,7 @@ class FriendRequestReadMigrationTest {
             insert(connection, 3009, 1002, "FRIEND_REQUEST", "friendship:2004:requested:1", null);
             insert(connection, 3010, 1006, "FRIEND_REQUEST", "friendship:2003:requested:2", null);
 
-            Flyway.configure().dataSource(dataSource).target("20").load().migrate();
+            Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).target("20").load().migrate();
 
             for (long id : new long[]{3001, 3002, 3003, 3004, 3009, 3010}) {
                 assertThat(readAt(connection, id)).as("resolved request %s", id).isNotNull();

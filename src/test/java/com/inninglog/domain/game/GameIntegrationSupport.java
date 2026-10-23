@@ -66,6 +66,13 @@ abstract class GameIntegrationSupport {
 
     long team(String code) { return teams.findByTeamCode(code).orElseThrow().getId(); }
 
+    /** PostgreSQL JDBC accepts OffsetDateTime, while H2 also happens to accept raw Instant. */
+    int sqlUpdate(String sql, Object... values) {
+        return jdbc.update(sql, Arrays.stream(values)
+                .map(value -> value instanceof Instant instant ? GameRepository.timestamp(instant) : value)
+                .toArray());
+    }
+
     Map<String,Object> game(LocalDate date, String status, Integer homeScore, Integer awayScore) {
         Map<String,Object> game = new LinkedHashMap<>();
         game.put("date", date.toString());

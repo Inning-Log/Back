@@ -1,7 +1,6 @@
 package com.inninglog.domain.game.notification;
 
 import com.inninglog.domain.game.model.Game;
-import com.inninglog.domain.game.model.GameStateSnapshot;
 import com.inninglog.domain.game.model.GameStatus;
 import com.inninglog.domain.notification.entity.NotificationType;
 import com.inninglog.domain.notification.service.NotificationLinkService;
@@ -43,7 +42,7 @@ public class GameNotificationService {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void onEffectiveState(Game game, GameStateSnapshot previous, long stateId, String mode) {
+    public void onEffectiveState(Game game, Game previous, long stateId, String mode) {
         if (previous == null || !"game-window".equals(mode) || !"SCOREBOARD".equals(game.resultSource())
                 || !game.gameDate().equals(LocalDate.now(clock.withZone(KOREA)))
                 || game.resultObservedAt().isBefore(clock.instant().minus(maxObservationAge))
@@ -57,7 +56,9 @@ public class GameNotificationService {
 
         boolean previousLive = previous.status() == GameStatus.LIVE && "SCOREBOARD".equals(previous.resultSource());
         boolean adjacent = previousLive && adjacent(previous, game);
-        boolean finished = previousLive && game.status() == GameStatus.FINISHED && previous.currentInning() != null;
+        boolean finished = previousLive && game.status() == GameStatus.FINISHED && previous.currentInning() != null
+                && !previous.resultObservedAt().isBefore(clock.instant().minus(maxObservationAge))
+                && (game.currentInning() == null || game.currentInning().equals(previous.currentInning()));
         boolean firstPitch = previous.status() == GameStatus.SCHEDULED && game.status() == GameStatus.LIVE
                 && Objects.equals(game.currentInning(), 1) && "TOP".equals(game.currentHalf());
 
@@ -75,7 +76,8 @@ public class GameNotificationService {
         }
         boolean comparableScore = "SCOREBOARD".equals(previous.resultSource())
                 && (previous.status() == GameStatus.LIVE || previous.status() == GameStatus.FINISHED);
-        if (comparableScore && previous.hasScore() && game.homeScore() != null && game.awayScore() != null
+        if (comparableScore && previous.homeScore() != null && previous.awayScore() != null
+                && game.homeScore() != null && game.awayScore() != null
                 && (!previous.homeScore().equals(game.homeScore()) || !previous.awayScore().equals(game.awayScore()))) {
             notify(viewers, game, NotificationType.GAME_SCORE_CHANGED, "score:" + stateId,
                     "경기 점수가 바뀌었어요", game.awayTeam().name() + " " + game.awayScore() + " : "
@@ -115,7 +117,7 @@ public class GameNotificationService {
         }
     }
 
-    private static boolean adjacent(GameStateSnapshot previous, Game next) {
+    private static boolean adjacent(Game previous, Game next) {
         if (next.status() != GameStatus.LIVE || previous.currentInning() == null || next.currentInning() == null) return false;
         return (previous.currentInning().equals(next.currentInning()) && "TOP".equals(previous.currentHalf()) && "BOTTOM".equals(next.currentHalf()))
                 || (next.currentInning() == previous.currentInning() + 1 && "BOTTOM".equals(previous.currentHalf()) && "TOP".equals(next.currentHalf()));

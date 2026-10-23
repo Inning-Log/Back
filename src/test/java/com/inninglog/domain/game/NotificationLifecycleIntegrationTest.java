@@ -22,8 +22,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
-        "spring.datasource.url=jdbc:h2:mem:notification_lifecycle;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
-        "spring.datasource.username=sa", "spring.datasource.password=", "app.games.allow-fixtures=true"
+        "spring.datasource.url=${LIFECYCLE_TEST_JDBC_URL:jdbc:h2:mem:notification_lifecycle;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1}",
+        "spring.datasource.username=${GAME_TEST_DB_USER:sa}", "spring.datasource.password=${GAME_TEST_DB_PASSWORD:}", "app.games.allow-fixtures=true"
 })
 @Import(NotificationLifecycleIntegrationTest.GatewayConfiguration.class)
 class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
@@ -40,7 +40,7 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         for (String table : List.of("notification_delivery_targets", "notification_outbox", "notifications",
                 "video_comments", "inning_record_videos", "inning_records", "user_game_logs", "game_external_ids",
                 "game_state_snapshots", "game_snapshot_receipts", "games", "friendships")) {
-            jdbc.update("delete from " + table);
+            sqlUpdate("delete from " + table);
         }
         gateway.calls = 0;
         gateway.retry = false;
@@ -51,7 +51,7 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
     void expiredPendingEventCompletesWithoutGatewayAndPreservesInbox() {
         User user = registered();
         long notification = enqueue("expired", user, NotificationType.GAME_SCORE_CHANGED, Map.of());
-        jdbc.update("update notification_outbox set created_at = ? where notification_id = ?", NOW.minusSeconds(600), notification);
+        sqlUpdate("update notification_outbox set created_at = ? where notification_id = ?", NOW.minusSeconds(600), notification);
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(dispatcher.dispatchNext()).isFalse();
         assertThat(gateway.calls).isZero();
@@ -66,7 +66,7 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         failFirstAttempt();
         assertThat(gateway.last.expiresAt()).isEqualTo(NOW.plusSeconds(600));
         assertThat(gateway.last.withSystemData(Map.of("sample", "value")).expiresAt()).isEqualTo(gateway.last.expiresAt());
-        jdbc.update("update notification_outbox set created_at = ? where notification_id = ?", NOW.minusSeconds(601), notification);
+        sqlUpdate("update notification_outbox set created_at = ? where notification_id = ?", NOW.minusSeconds(601), notification);
         readyRetry();
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(gateway.calls).isEqualTo(1);
@@ -81,7 +81,7 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         long notification = enqueue("friendship:" + friendship + ":requested:1", receiver, NotificationType.FRIEND_REQUEST,
                 Map.of("friendshipId", Long.toString(friendship), "requestRevision", "1"));
         failFirstAttempt();
-        jdbc.update("update friendships set status = 'ACCEPTED', responded_at = ? where id = ?", NOW, friendship);
+        sqlUpdate("update friendships set status = 'ACCEPTED', responded_at = ? where id = ?", NOW, friendship);
         readyRetry();
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(gateway.calls).isEqualTo(1);
@@ -95,16 +95,38 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         long log = viewing(user, game, team("LG"), "HOME");
         Map<String, String> data = Map.of("gameId", Long.toString(game), "userGameLogId", Long.toString(log), "inning", "3");
         long removed = enqueue("removed-viewing", user, NotificationType.GAME_INNING_STARTED, data);
-        jdbc.update("update user_game_logs set deleted_at = ? where id = ?", NOW, log);
+        sqlUpdate("update user_game_logs set deleted_at = ? where id = ?", NOW, log);
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(gateway.calls).isZero();
         assertThat(status(removed)).isEqualTo("COMPLETED");
 
-        jdbc.update("update user_game_logs set deleted_at = null where id = ?", log);
+        sqlUpdate("update user_game_logs set deleted_at = null where id = ?", log);
         long reminder = enqueue("recorded-reminder", user, NotificationType.RECORD_REMINDER, data);
         failFirstAttempt();
         assertThat(gateway.last.expiresAt()).isEqualTo(NOW.plus(Duration.ofHours(1)));
         record(log, 3);
+        readyRetry();
+        assertThat(dispatcher.dispatchNext()).isTrue();
+        assertThat(gateway.calls).isEqualTo(1);
+        assertThat(status(reminder)).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void cancelledGameSuppressesPendingProgressAndPostponedGameSuppressesReminderRetry() {
+        User user = registered();
+        long game = ingest(game(TODAY, "LIVE", 0, 0));
+        long log = viewing(user, game, team("LG"), "HOME");
+        Map<String, String> data = Map.of("gameId", Long.toString(game), "userGameLogId", Long.toString(log), "inning", "3");
+        long progress = enqueue("cancelled-game", user, NotificationType.GAME_INNING_STARTED, data);
+        sqlUpdate("update games set status = 'CANCELED' where id = ?", game);
+        assertThat(dispatcher.dispatchNext()).isTrue();
+        assertThat(gateway.calls).isZero();
+        assertThat(status(progress)).isEqualTo("COMPLETED");
+
+        sqlUpdate("update games set status = 'LIVE' where id = ?", game);
+        long reminder = enqueue("postponed-reminder", user, NotificationType.RECORD_REMINDER, data);
+        failFirstAttempt();
+        sqlUpdate("update games set status = 'POSTPONED' where id = ?", game);
         readyRetry();
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(gateway.calls).isEqualTo(1);
@@ -118,12 +140,12 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         long log = viewing(owner, game, team("LG"), "HOME");
         long record = record(log, 3);
         long friendship = friendship(author, owner, true);
-        jdbc.update("""
+        sqlUpdate("""
                 insert into inning_record_videos(inning_record_id,object_key,content_type,size_bytes,status,created_at,updated_at)
                 values (?,?,'video/mp4',128,'READY',?,?)
                 """, record, UUID.randomUUID().toString(), NOW, NOW);
         long video = jdbc.queryForObject("select max(id) from inning_record_videos", Long.class);
-        jdbc.update("""
+        sqlUpdate("""
                 insert into video_comments(video_id,author_user_id,client_comment_id,request_fingerprint,content,created_at,updated_at)
                 values (?,?,?,?,'comment',?,?)
                 """, video, author.getId(), UUID.randomUUID().toString(), "a".repeat(64), NOW, NOW);
@@ -132,15 +154,15 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         long deleted = enqueue("deleted-comment", owner, NotificationType.TIMELINE_COMMENT, data);
         failFirstAttempt();
         assertThat(gateway.last.expiresAt()).isEqualTo(NOW.plus(Duration.ofDays(7)));
-        jdbc.update("update video_comments set deleted_at = ? where id = ?", NOW, comment);
+        sqlUpdate("update video_comments set deleted_at = ? where id = ?", NOW, comment);
         readyRetry();
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(gateway.calls).isEqualTo(1);
         assertThat(status(deleted)).isEqualTo("COMPLETED");
 
-        jdbc.update("update video_comments set deleted_at = null where id = ?", comment);
+        sqlUpdate("update video_comments set deleted_at = null where id = ?", comment);
         long unfriended = enqueue("unfriended-comment", owner, NotificationType.TIMELINE_COMMENT, data);
-        jdbc.update("delete from friendships where id = ?", friendship);
+        sqlUpdate("delete from friendships where id = ?", friendship);
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(gateway.calls).isEqualTo(1);
         assertThat(status(unfriended)).isEqualTo("COMPLETED");
@@ -153,17 +175,17 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(status(completed)).isEqualTo("COMPLETED");
-        jdbc.update("update notification_outbox set completed_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(31)), completed);
+        sqlUpdate("update notification_outbox set completed_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(31)), completed);
 
         long active = enqueue("active-retry", user, NotificationType.FRIEND_ACCEPTED, Map.of());
         gateway.retry = true;
         assertThat(dispatcher.dispatchNext()).isTrue();
         assertThat(dispatcher.dispatchNext()).isTrue();
-        jdbc.update("update notification_outbox set created_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(31)), active);
+        sqlUpdate("update notification_outbox set created_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(31)), active);
         long pending = enqueue("active-pending", user, NotificationType.FRIEND_ACCEPTED, Map.of());
-        jdbc.update("update notification_outbox set created_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(31)), pending);
+        sqlUpdate("update notification_outbox set created_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(31)), pending);
         long recent = enqueue("recent-completed", user, NotificationType.FRIEND_ACCEPTED, Map.of());
-        jdbc.update("update notification_outbox set status = 'COMPLETED', completed_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(1)), recent);
+        sqlUpdate("update notification_outbox set status = 'COMPLETED', completed_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(1)), recent);
 
         assertThat(retention.cleanCompleted()).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from notification_outbox where notification_id = ?", Long.class, completed)).isZero();
@@ -175,7 +197,7 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         assertThat(jdbc.queryForObject("select count(*) from notification_outbox where notification_id = ?", Long.class, completed)).isZero();
 
         // Defensive preservation even when a terminal header incorrectly still has an active target.
-        jdbc.update("update notification_outbox set status = 'COMPLETED_WITH_FAILURES', completed_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(31)), active);
+        sqlUpdate("update notification_outbox set status = 'COMPLETED_WITH_FAILURES', completed_at = ? where notification_id = ?", NOW.minus(Duration.ofDays(31)), active);
         assertThat(retention.cleanCompleted()).isZero();
         assertThat(jdbc.queryForObject("select count(*) from notification_delivery_targets", Long.class)).isEqualTo(1);
     }
@@ -198,11 +220,11 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         assertThat(jdbc.queryForObject("select count(*) from notification_delivery_targets where status = 'RETRY'", Long.class)).isEqualTo(1);
     }
 
-    private void readyRetry() { jdbc.update("update notification_delivery_targets set next_attempt_at = ? where status = 'RETRY'", NOW); }
+    private void readyRetry() { sqlUpdate("update notification_delivery_targets set next_attempt_at = ? where status = 'RETRY'", NOW); }
     private String status(long notification) { return jdbc.queryForObject("select status from notification_outbox where notification_id = ?", String.class, notification); }
 
     private long friendship(User requester, User receiver, boolean accepted) {
-        jdbc.update("""
+        sqlUpdate("""
                 insert into friendships(requester_id,receiver_id,pair_key,status,requested_at,responded_at,created_at,updated_at)
                 values (?,?,?,?,?,?,?,?)
                 """, requester.getId(), receiver.getId(), Math.min(requester.getId(), receiver.getId()) + ":" + Math.max(requester.getId(), receiver.getId()),
@@ -211,7 +233,7 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
     }
 
     private long record(long log, int inning) {
-        jdbc.update("""
+        sqlUpdate("""
                 insert into inning_records(user_game_log_id,client_record_id,request_fingerprint,inning_number,caption,recorded_at,created_at,updated_at)
                 values (?,?,?,?,'record',?,?,?)
                 """, log, UUID.randomUUID().toString(), "a".repeat(64), inning, NOW, NOW, NOW);

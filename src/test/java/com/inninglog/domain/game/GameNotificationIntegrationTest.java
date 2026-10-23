@@ -30,8 +30,8 @@ class GameNotificationIntegrationTest extends GameIntegrationSupport {
         viewing(stadium, id, team("OB"), "STADIUM");
         long removedLog = viewing(removed, id, team("LG"), "HOME");
         viewing(withdrawn, id, team("LG"), "HOME");
-        jdbc.update("update user_game_logs set deleted_at = ? where id = ?", NOW, removedLog);
-        jdbc.update("update app_users set deleted_at = ? where id = ?", NOW, withdrawn.getId());
+        sqlUpdate("update user_game_logs set deleted_at = ? where id = ?", NOW, removedLog);
+        sqlUpdate("update app_users set deleted_at = ? where id = ?", NOW, withdrawn.getId());
         user(); // A favorite-team fan with no viewing log is not a recipient.
 
         input.put("half", "BOTTOM");
@@ -98,7 +98,7 @@ class GameNotificationIntegrationTest extends GameIntegrationSupport {
         long id = baseline(input);
         User muted = user();
         viewing(muted, id, team("LG"), "HOME");
-        jdbc.update("insert into notification_settings(user_id, game_progress_enabled, record_reminder_enabled, social_reaction_enabled, updated_at) values (?,false,false,true,?)", muted.getId(), NOW);
+        sqlUpdate("insert into notification_settings(user_id, game_progress_enabled, record_reminder_enabled, social_reaction_enabled, updated_at) values (?,false,false,true,?)", muted.getId(), NOW);
         input.put("inning", 4); input.put("half", "TOP"); input.put("score", Map.of("home", 2, "away", 2));
         window(input, OBSERVED.plusSeconds(1));
         assertThat(count("notifications")).isEqualTo(4);
@@ -191,6 +191,59 @@ class GameNotificationIntegrationTest extends GameIntegrationSupport {
         assertThat(count("notifications")).isZero();
     }
 
+    @Test
+    void scoreboardPromotionWithoutHistoryChangeStillAllowsTheNextTransition() {
+        var input = live(3, "BOTTOM", 1, 2);
+        long id = ingest(input); // Last history row is sourced from SCHEDULE.
+        viewing(user(), id, team("LG"), "HOME");
+        window(input, OBSERVED.plusSeconds(1)); // Same values, now verified by SCOREBOARD.
+        assertThat(games.stateHistory(id)).hasSize(1);
+        assertThat(count("notifications")).isZero();
+        input.put("inning", 4); input.put("half", "TOP"); input.put("score", Map.of("home", 2, "away", 2));
+        window(input, OBSERVED.plusSeconds(2));
+        assertThat(typeCount("GAME_INNING_STARTED")).isEqualTo(1);
+        assertThat(typeCount("GAME_INNING_ENDED")).isEqualTo(1);
+        assertThat(typeCount("GAME_SCORE_CHANGED")).isEqualTo(1);
+        assertThat(typeCount("RECORD_REMINDER")).isEqualTo(1);
+    }
+
+    @Test
+    void finalStateWithDifferentInningDoesNotBackfillTheLastKnownInning() {
+        var input = live(3, "BOTTOM", 1, 2);
+        long id = baseline(input);
+        viewing(user(), id, team("LG"), "HOME");
+        input.put("status", "FINISHED"); input.put("inning", 9); input.put("half", "BOTTOM");
+        window(input, OBSERVED.plusSeconds(1));
+        assertThat(typeCount("GAME_INNING_ENDED")).isZero();
+        assertThat(typeCount("RECORD_REMINDER")).isZero();
+    }
+
+    @Test
+    void finalStateWithoutInningDoesNotBackfillAfterAnObservationGap() {
+        var input = live(3, "BOTTOM", 1, 2);
+        window(input, NOW.minusSeconds(901));
+        long id = id(input);
+        viewing(user(), id, team("LG"), "HOME");
+        input.put("status", "FINISHED"); input.remove("inning"); input.remove("half");
+        window(input, NOW.minusSeconds(1));
+        assertThat(typeCount("GAME_INNING_ENDED")).isZero();
+        assertThat(typeCount("RECORD_REMINDER")).isZero();
+    }
+
+    @Test
+    void unchangedRecentScoreboardHeartbeatMakesTheFinalInningObservable() {
+        var input = live(9, "BOTTOM", 1, 2);
+        window(input, NOW.minusSeconds(901));
+        long id = id(input);
+        viewing(user(), id, team("LG"), "HOME");
+        window(input, NOW.minusSeconds(2));
+        assertThat(games.stateHistory(id)).hasSize(1);
+        input.put("status", "FINISHED"); input.remove("inning"); input.remove("half");
+        window(input, NOW.minusSeconds(1));
+        assertThat(typeCount("GAME_INNING_ENDED")).isEqualTo(1);
+        assertThat(typeCount("RECORD_REMINDER")).isEqualTo(1);
+    }
+
     private Map<String, Object> live(int inning, String half, int homeScore, int awayScore) {
         var input = game(TODAY, "LIVE", homeScore, awayScore);
         input.put("inning", inning); input.put("half", half);
@@ -214,7 +267,7 @@ class GameNotificationIntegrationTest extends GameIntegrationSupport {
     private long count(String table) { return jdbc.queryForObject("select count(*) from " + table, Long.class); }
     private long typeCount(String type) { return jdbc.queryForObject("select count(*) from notifications where notification_type = ?", Long.class, type); }
     private void record(long logId, int inning, boolean deleted) {
-        jdbc.update("""
+        sqlUpdate("""
                 insert into inning_records(user_game_log_id,client_record_id,request_fingerprint,inning_number,caption,recorded_at,created_at,updated_at,deleted_at)
                 values (?,?,?,?,'record',?,?,?,?)
                 """, logId, java.util.UUID.randomUUID().toString(), "a".repeat(64), inning, NOW, NOW, NOW, deleted ? NOW : null);

@@ -43,7 +43,9 @@ class VideoCommentConcurrencyIntegrationTest extends GameIntegrationSupport {
 
     @DynamicPropertySource
     static void isolatedDatabase(DynamicPropertyRegistry registry) {
-        if (System.getenv("GAME_TEST_JDBC_URL") == null)
+        if (System.getenv("VIDEO_COMMENT_TEST_JDBC_URL") != null)
+            registry.add("spring.datasource.url", () -> System.getenv("VIDEO_COMMENT_TEST_JDBC_URL"));
+        else if (System.getenv("GAME_TEST_JDBC_URL") == null)
             registry.add("spring.datasource.url", () -> "jdbc:h2:mem:video_comment_concurrency;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
     }
 

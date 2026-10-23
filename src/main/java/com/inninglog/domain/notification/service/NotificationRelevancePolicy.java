@@ -49,6 +49,8 @@ public class NotificationRelevancePolicy {
                     where l.id = ? and l.user_id = ? and l.game_id = ? and l.deleted_at is null
                     """, numeric(data, "userGameLogId"), outbox.getUserId(), numeric(data, "gameId")))
                 return "VIEWING_REMOVED";
+            if (exists("select count(*) from games where id = ? and status in ('CANCELED', 'POSTPONED')",
+                    numeric(data, "gameId"))) return "GAME_UNAVAILABLE";
             if (outbox.getNotificationType() == com.inninglog.domain.notification.entity.NotificationType.RECORD_REMINDER
                     && exists("""
                     select count(*) from inning_records where user_game_log_id = ?
