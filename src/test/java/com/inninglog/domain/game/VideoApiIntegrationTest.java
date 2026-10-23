@@ -1,15 +1,18 @@
 package com.inninglog.domain.game;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.inninglog.domain.friendship.entity.Friendship;
 import com.inninglog.domain.friendship.repository.FriendshipRepository;
 import com.inninglog.domain.user.entity.User;
+import com.inninglog.domain.user.service.AccountDeletionService;
 import com.inninglog.domain.video.storage.VideoStorage;
 import com.inninglog.domain.video.repository.VideoRepository;
 import com.inninglog.domain.video.service.VideoCleanupService;
+import com.inninglog.domain.video.service.VideoService;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,6 +26,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 
 // Not @Transactional: S3 deletes run after commit, which a rolled-back test transaction never reaches.
@@ -42,6 +47,9 @@ class VideoApiIntegrationTest extends GameIntegrationSupport {
     @Autowired FriendshipRepository friendships;
     @Autowired VideoRepository videos;
     @Autowired VideoCleanupService cleanup;
+    @Autowired VideoService videoService;
+    @Autowired AccountDeletionService accountDeletion;
+    @Autowired PlatformTransactionManager transactionManager;
 
     @TestConfiguration
     static class StorageConfig {
@@ -335,6 +343,82 @@ class VideoApiIntegrationTest extends GameIntegrationSupport {
         mvc.perform(post(path(recordId) + "/complete").with(as(owner)))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("VIDEO_UPLOAD_MISMATCH"));
         assertThat(videos.findActive(recordId)).isEmpty();
+    }
+
+    @Test
+    void withdrawalQueuesReadyAndHiddenVideosAndSurvivesStorageFailure() throws Exception {
+        var owner = user();
+        long visibleRecord = record(owner);
+        long ready = uploadUrl(owner, visibleRecord, "video/mp4", 10).path("videoId").longValue();
+        String readyKey = storage.lastKey();
+        storage.store(readyKey, 10, "video/mp4");
+        mvc.perform(post(path(visibleRecord) + "/complete").with(as(owner))).andExpect(status().isOk());
+        long hiddenRecord = record(owner);
+        long pending = uploadUrl(owner, hiddenRecord, "video/mp4", 10).path("videoId").longValue();
+        String hiddenKey = storage.lastKey();
+        storage.store(hiddenKey, 10, "video/mp4");
+        sqlUpdate("update inning_records set deleted_at = ? where id = ?", NOW, hiddenRecord);
+        sqlUpdate("update user_game_logs set deleted_at = ? where id = (select user_game_log_id from inning_records where id = ?)",
+                NOW, hiddenRecord);
+        expire(ready);
+        expire(pending);
+        storage.failedDeletes.add(readyKey);
+        mvc.perform(delete("/api/users/me").with(as(owner))).andExpect(status().isNoContent());
+        assertThat(videos.cleanupRow(ready).orElseThrow().video().deletedAt()).isEqualTo(NOW);
+        assertThat(videos.cleanupRow(pending).orElseThrow().video().deletedAt()).isEqualTo(NOW);
+        assertThat(cleanup.candidates()).contains(ready, pending);
+        cleanup.cleanup(ready);
+        cleanup.cleanup(pending);
+        assertThat(videos.cleanupRow(ready).orElseThrow().attempts()).isEqualTo(1);
+        assertThat(storage.objects).containsKey(readyKey).doesNotContainKey(hiddenKey);
+        assertThat(users.findById(owner.getId()).orElseThrow().isDeleted()).isTrue();
+        storage.failedDeletes.remove(readyKey);
+        sqlUpdate("update inning_record_videos set cleanup_retry_at = ? where id = ?", NOW, ready);
+        cleanup.cleanup(ready);
+        assertThat(storage.objects).doesNotContainKey(readyKey);
+    }
+
+    @Test
+    void workerAlsoRecoversVideosLeftByWithdrawalsBeforeThisRelease() throws Exception {
+        var owner = user();
+        long recordId = record(owner);
+        long id = uploadUrl(owner, recordId, "video/mp4", 10).path("videoId").longValue();
+        String key = storage.lastKey();
+        storage.store(key, 10, "video/mp4");
+        mvc.perform(post(path(recordId) + "/complete").with(as(owner))).andExpect(status().isOk());
+        expire(id);
+        sqlUpdate("update app_users set deleted_at = ? where id = ?", NOW, owner.getId());
+        sqlUpdate("update user_game_logs set deleted_at = ? where user_id = ?", NOW, owner.getId());
+        assertThat(videos.cleanupRow(id).orElseThrow().video().deletedAt()).isNull();
+        assertThat(cleanup.candidates()).contains(id);
+        cleanup.cleanup(id);
+        assertThat(videos.cleanupRow(id).orElseThrow().storageDeletedAt()).isNotNull();
+        assertThat(videos.findActive(recordId)).isEmpty();
+        assertThat(storage.objects).doesNotContainKey(key);
+    }
+
+    @Test
+    void rolledBackDeletionDoesNotRemoveTheObjectOrLeaveADeletionQueue() throws Exception {
+        var owner = user();
+        long recordId = record(owner);
+        long id = uploadUrl(owner, recordId, "video/mp4", 10).path("videoId").longValue();
+        String key = storage.lastKey();
+        storage.store(key, 10, "video/mp4");
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            videoService.delete(owner.getId().toString(), recordId);
+            throw new IllegalStateException("Rollback");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(videos.findActive(recordId)).isPresent();
+        assertThat(storage.objects).containsKey(key);
+        assertThat(cleanup.candidates()).doesNotContain(id);
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            accountDeletion.deleteCurrentUser(owner.getId().toString());
+            throw new IllegalStateException("Rollback");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(users.findById(owner.getId()).orElseThrow().isDeleted()).isFalse();
+        assertThat(videos.findActive(recordId)).isPresent();
+        assertThat(cleanup.candidates()).doesNotContain(id);
+        assertThat(storage.objects).containsKey(key);
     }
 
     private void expire(long id) {

@@ -9,6 +9,7 @@ import com.inninglog.domain.oauth.repository.OAuthAccountRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.exception.UserNotFoundException;
 import com.inninglog.domain.user.repository.UserRepository;
+import com.inninglog.domain.video.repository.VideoRepository;
 import java.time.Clock;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,7 @@ public class AccountDeletionService {
     private final Clock clock;
     private final GameRepository gameRepository;
     private final UserNotificationRepository notificationRepository;
+    private final VideoRepository videoRepository;
 
     public AccountDeletionService(
             UserRepository userRepository,
@@ -34,7 +36,8 @@ public class AccountDeletionService {
             FriendshipRepository friendshipRepository,
             Clock clock,
             GameRepository gameRepository,
-            UserNotificationRepository notificationRepository
+            UserNotificationRepository notificationRepository,
+            VideoRepository videoRepository
     ) {
         this.userRepository = userRepository;
         this.oAuthAccountRepository = oAuthAccountRepository;
@@ -44,6 +47,7 @@ public class AccountDeletionService {
         this.clock = clock;
         this.gameRepository = gameRepository;
         this.notificationRepository = notificationRepository;
+        this.videoRepository = videoRepository;
     }
 
     @Transactional
@@ -61,6 +65,8 @@ public class AccountDeletionService {
             notificationRepository.markSelectedRead(
                     requestNotificationIds.subList(start, Math.min(start + 1000, requestNotificationIds.size())), now);
         }
+        // Commit the deletion queue with withdrawal; storage outages must not prevent withdrawal.
+        videoRepository.deleteForUser(user.getId(), now);
         gameRepository.deleteUserLogs(user.getId(), now);
         if (!user.isDeleted()) {
             oAuthAccountRepository.findAllByUserId(user.getId())

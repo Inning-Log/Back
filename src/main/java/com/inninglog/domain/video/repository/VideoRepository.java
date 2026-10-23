@@ -70,6 +70,16 @@ public class VideoRepository {
                 timestamp(now), timestamp(now), id);
     }
 
+    /** The caller holds the owner row lock. Include videos in previously hidden logs/records. */
+    public void deleteForUser(long userId, Instant now) {
+        jdbc.update("""
+                update inning_record_videos set deleted_at = ?, updated_at = ?, cleanup_retry_at = null
+                where deleted_at is null and inning_record_id in (
+                    select r.id from inning_records r join user_game_logs l on l.id = r.user_game_log_id
+                    where l.user_id = ?)
+                """, timestamp(now), timestamp(now), userId);
+    }
+
     private static final String CLEANUP_JOIN = """
             from inning_record_videos v join inning_records r on r.id = v.inning_record_id
             join user_game_logs l on l.id = r.user_game_log_id join app_users u on u.id = l.user_id
