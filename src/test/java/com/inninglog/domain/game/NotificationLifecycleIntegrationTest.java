@@ -13,6 +13,8 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -207,6 +209,74 @@ class NotificationLifecycleIntegrationTest extends GameIntegrationSupport {
         registrations.register(user.getId().toString(), new PushRegistrationRequest(DevicePlatform.WEB, "fid-" + UUID.randomUUID()));
         return user;
     }
+
+    @Test
+    void videoOwnerReplyIsDeliveredToParentAuthorAndNotToVideoOwner() {
+        var fixture = replyFixture(true);
+        long notification = enqueue("owner-reply", fixture.recipient(), NotificationType.TIMELINE_COMMENT,
+                Map.of("commentId", Long.toString(fixture.reply()), "parentCommentId", Long.toString(fixture.parent())));
+        assertThat(dispatcher.dispatchNext()).isTrue();
+        assertThat(dispatcher.dispatchNext()).isTrue();
+        assertThat(gateway.calls).isEqualTo(1);
+        assertThat(status(notification)).isEqualTo("COMPLETED");
+        long wrongRecipient = enqueue("wrong-recipient", fixture.owner(), NotificationType.TIMELINE_COMMENT,
+                Map.of("commentId", Long.toString(fixture.reply())));
+        assertThat(dispatcher.dispatchNext()).isTrue();
+        assertThat(gateway.calls).isEqualTo(1);
+        assertThat(status(wrongRecipient)).isEqualTo("COMPLETED");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"parent", "reply", "recipient", "actor", "owner", "recipientFriendship", "actorFriendship", "video"})
+    void replyRetryRechecksThreadUsersAndBothVideoAccessRelationships(String removed) {
+        var fixture = replyFixture(false);
+        long notification = enqueue("reply-retry", fixture.recipient(), NotificationType.TIMELINE_COMMENT,
+                Map.of("commentId", Long.toString(fixture.reply()), "parentCommentId", Long.toString(fixture.parent())));
+        failFirstAttempt();
+        switch (removed) {
+            case "parent" -> sqlUpdate("update video_comments set deleted_at = ? where id = ?", NOW, fixture.parent());
+            case "reply" -> sqlUpdate("update video_comments set deleted_at = ? where id = ?", NOW, fixture.reply());
+            case "recipient" -> sqlUpdate("update app_users set deleted_at = ? where id = ?", NOW, fixture.recipient().getId());
+            case "actor" -> sqlUpdate("update app_users set deleted_at = ? where id = ?", NOW, fixture.actor().getId());
+            case "owner" -> sqlUpdate("update app_users set deleted_at = ? where id = ?", NOW, fixture.owner().getId());
+            case "recipientFriendship" -> sqlUpdate("delete from friendships where id = ?", fixture.recipientFriendship());
+            case "actorFriendship" -> sqlUpdate("delete from friendships where id = ?", fixture.actorFriendship());
+            case "video" -> sqlUpdate("update inning_record_videos set deleted_at = ? where id = ?", NOW, fixture.video());
+            default -> throw new IllegalStateException();
+        }
+        readyRetry();
+        assertThat(dispatcher.dispatchNext()).isTrue();
+        assertThat(gateway.calls).isEqualTo(1);
+        assertThat(status(notification)).isEqualTo("COMPLETED");
+    }
+
+    private ReplyFixture replyFixture(boolean ownerReplies) {
+        User owner = user(), recipient = registered(), actor = ownerReplies ? owner : user();
+        long game = ingest(game(TODAY, "LIVE", 0, 0));
+        long log = viewing(owner, game, team("LG"), "HOME");
+        long record = record(log, 3);
+        long recipientFriendship = friendship(recipient, owner, true);
+        long actorFriendship = ownerReplies ? 0 : friendship(actor, owner, true);
+        sqlUpdate("""
+                insert into inning_record_videos(inning_record_id,object_key,content_type,size_bytes,status,created_at,updated_at)
+                values (?,?,'video/mp4',128,'READY',?,?)
+                """, record, UUID.randomUUID().toString(), NOW, NOW);
+        long video = jdbc.queryForObject("select max(id) from inning_record_videos", Long.class);
+        long parent = comment(video, recipient, null);
+        long reply = comment(video, actor, parent);
+        return new ReplyFixture(owner, recipient, actor, video, parent, reply, recipientFriendship, actorFriendship);
+    }
+
+    private long comment(long video, User author, Long parent) {
+        sqlUpdate("""
+                insert into video_comments(video_id,author_user_id,client_comment_id,request_fingerprint,content,parent_comment_id,created_at,updated_at)
+                values (?,?,?,?,'comment',?,?,?)
+                """, video, author.getId(), UUID.randomUUID().toString(), "a".repeat(64), parent, NOW, NOW);
+        return jdbc.queryForObject("select max(id) from video_comments", Long.class);
+    }
+
+    private record ReplyFixture(User owner, User recipient, User actor, long video, long parent, long reply,
+                                long recipientFriendship, long actorFriendship) {}
 
     private long enqueue(String key, User user, NotificationType type, Map<String, String> data) {
         return transactions.execute(ignored -> queue.enqueueToUser(key, user.getId(), new PushNotification(type, "알림", "내용", data)));
