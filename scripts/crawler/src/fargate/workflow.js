@@ -29,7 +29,7 @@ function snapshot({ config, source, dateKey, mode, observedAt, games, anomalies 
   };
 }
 
-function monthlyScheduleSnapshot({ source, monthKey, observedAt, games, anomalies }) {
+function monthlyScheduleSnapshot({ source, monthKey, observedAt, games, anomalies, deferredGames = [], offDays = [] }) {
   return {
     schemaVersion: 1,
     source: source.kind === "fixture" ? "fixture-kbo-pages" : "kbo-pages",
@@ -39,6 +39,8 @@ function monthlyScheduleSnapshot({ source, monthKey, observedAt, games, anomalie
     observedAt: iso(observedAt),
     games,
     anomalies,
+    deferredGames,
+    offDays,
     requestMetrics: source.getMetrics(),
   };
 }
@@ -79,7 +81,7 @@ export async function runCollectOnce(context) {
   }
   try {
     const options = recoveryOptions({ state, leaseKey, owner, now, signal: context.signal });
-    const month = await source.fetchScheduleMonth(dateKey, options);
+    const month = await source.fetchScheduleMonth(dateKey, { ...options, includeNextMonth: true });
     // One bounded diagnostic observation, even on a no-game day.
     const scores = await source.fetchScoreboard(dateKey, options);
     const merged = mergeKboPages(month.games.filter(game => game.date === dateKey), scores.games);
@@ -87,6 +89,10 @@ export async function runCollectOnce(context) {
     const value = snapshot({ config, source, dateKey, mode: "game-window", observedAt: now(),
       games: merged.games, anomalies: [...month.anomalies.filter(entry => entry.date === dateKey), ...scores.anomalies, ...merged.anomalies] });
     const monthPublish = await saveMonthSchedule({ state, publisher, value: monthValue, nowMs: now() });
+    for (const additional of month.additionalMonths ?? []) {
+      await saveMonthSchedule({ state, publisher, value: monthlyScheduleSnapshot({ source,
+        monthKey: additional.pageDate, observedAt: now(), ...additional }), nowMs: now() });
+    }
     const publish = await saveAndPublish({ state, publisher, value, nowMs: now() });
     const savedMonth = await state.getJson(`SCHEDULE#MONTH#${dateKey.slice(0, 7)}`);
     const savedDay = await state.getJson(`LATEST#${dateKey}`);
@@ -128,7 +134,7 @@ export async function runPlanDay(context) {
   try {
     const fetchOptions = recoveryOptions({ state, leaseKey, owner, now, signal: context.signal });
     const monthlySchedule = typeof source.fetchScheduleMonth === "function"
-      ? await source.fetchScheduleMonth(dateKey, fetchOptions)
+      ? await source.fetchScheduleMonth(dateKey, { ...fetchOptions, includeNextMonth: true })
       : null;
     const schedule = monthlySchedule == null
       ? await source.fetchSchedule(dateKey, fetchOptions)
@@ -145,12 +151,18 @@ export async function runPlanDay(context) {
         observedAt: now(),
         games: monthlySchedule.games,
         anomalies: monthlySchedule.anomalies,
+        deferredGames: monthlySchedule.deferredGames,
+        offDays: monthlySchedule.offDays,
       });
     const monthPublish = monthValue == null
       ? null
       : (dryRun
         ? { changed: false, dryRun: true }
         : await saveMonthSchedule({ state, publisher, value: monthValue, nowMs: now() }));
+    if (!dryRun) for (const additional of monthlySchedule?.additionalMonths ?? []) {
+      await saveMonthSchedule({ state, publisher, value: monthlyScheduleSnapshot({ source,
+        monthKey: additional.pageDate, observedAt: now(), ...additional }), nowMs: now() });
+    }
     const value = snapshot({
       config,
       source,

@@ -12,7 +12,7 @@ import { abortableSleep } from "../src/fargate/sleep.js";
 import { main, resultExitCode } from "../src/fargate/main.js";
 
 async function harness(respond) {
-  const { config } = await loadFargateConfig({ profile: "kbo-live", env: { CRAWLER_KILL_SWITCH: "false" } });
+  const { config } = await loadFargateConfig({ profile: "kbo-live", env: { CRAWLER_KILL_SWITCH: "false", CRAWLER_SCHEDULE_SERIES: "0,9,6" } });
   config.scheduleTransport = "html";
   const html = await readFile(config.fixture.scoreboardFile, "utf8");
   const schedule = await readFile(config.fixture.scheduleFile, "utf8");

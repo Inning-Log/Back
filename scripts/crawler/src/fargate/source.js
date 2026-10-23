@@ -318,16 +318,16 @@ export function createKboPageSource(config, dependencies = {}) {
     }
   }
 
-  async function fetchMonth(dateKey, options = {}) {
+  async function fetchSeriesMonth(dateKey, options = {}, series = config.scheduleSeries) {
     const ajax = config.scheduleTransport === "page-ajax";
     return fetchParsed("schedule", dateKey, options, () => ajax
       ? request("scheduleData", options.signal, new URLSearchParams({
-        leId: "1", srIdList: config.scheduleSeries, seasonId: dateKey.slice(0, 4),
+        leId: "1", srIdList: series, seasonId: dateKey.slice(0, 4),
         gameMonth: dateKey.slice(5, 7), teamId: "",
       }))
       : request("schedule", options.signal), (result) => {
       const month = ajax
-        ? parseKboScheduleResponse(result, dateKey.slice(0, 7), config.scheduleSeries)
+        ? parseKboScheduleResponse(result, dateKey.slice(0, 7), series)
         : parseKboScheduleMonthPage(result, dateKey.slice(0, 7));
       const games = month.games.filter(game => game.date === dateKey);
       const anomalies = month.anomalies.filter(entry => entry.date === dateKey);
@@ -336,6 +336,55 @@ export function createKboPageSource(config, dependencies = {}) {
       }
       return month;
     });
+  }
+
+  async function postseasonMonth(month, dateKey, options, refreshToday) {
+    const key = `DISCOVERY#POSTSEASON#${month}`;
+    const cached = await state.getJson(key);
+    // Existing planner discovers new dates; a game window refreshes only today's known fixtures.
+    const activeToday = cached?.result.games.some(game => game.date === dateKey
+      && !["FINISHED", "CANCELLED", "POSTPONED"].includes(game.status))
+      || cached?.result.deferredGames?.some(game => game.date === dateKey);
+    const refreshDue = cached && (options.includeNextMonth || (refreshToday && activeToday))
+      && now() - cached.observedAt >= config.polling.scheduleRefreshMs;
+    if (cached?.checkedDate === dateKey && !refreshDue) return cached.result;
+    const result = await fetchSeriesMonth(month === dateKey.slice(0, 7) ? dateKey : `${month}-01`, options, "3,4,5,7");
+    // A formerly announced game replaced explicitly by an off-day is no longer scheduled.
+    // Never infer a cancellation merely from a missing or malformed response row.
+    if (result.anomalies.length === 0) for (const old of cached?.result.games ?? []) {
+      if (old.status !== "FINISHED" && result.offDays.includes(old.date)
+        && !result.games.some(game => game.date === old.date)) {
+        result.games.push({ ...old, status: "CANCELLED", statusText: "포스트시즌 이동일로 일정 변경",
+          score: { away: null, home: null }, inning: null, half: null,
+          meta: { ...old.meta, scheduleObservedAt: new Date(now()).toISOString(),
+            resultObservedAt: new Date(now()).toISOString(), resultSource: "SCHEDULE" } });
+      }
+    }
+    await state.putJson(key, { checkedDate: dateKey, observedAt: now(), result }, Math.floor(now() / 1000) + 172800);
+    return result;
+  }
+
+  async function fetchMonth(dateKey, options = {}) {
+    if (config.scheduleSeries !== "auto") return fetchSeriesMonth(dateKey, options);
+    if (config.scheduleTransport !== "page-ajax") throw new KboRequestError("Automatic season discovery requires page-ajax", "INVALID_SEASON_TRANSPORT");
+    const regular = await fetchSeriesMonth(dateKey, options, "0,9,6");
+    const month = dateKey.slice(0, 7);
+    const post = await postseasonMonth(month, dateKey, options, true);
+    const result = { ...regular, games: [...regular.games, ...post.games],
+      anomalies: [...regular.anomalies, ...post.anomalies], deferredGames: post.deferredGames,
+      offDays: post.offDays, additionalMonths: [] };
+    const detected = post.games.length + post.deferredGames.length > 0;
+    if (options.includeNextMonth && detected) {
+      const next = new Date(`${month}-01T00:00:00Z`);
+      next.setUTCMonth(next.getUTCMonth() + 1);
+      const nextMonth = next.toISOString().slice(0, 7);
+      const upcoming = await postseasonMonth(nextMonth, dateKey, options, false);
+      if (upcoming.games.length || upcoming.deferredGames.length) result.additionalMonths.push(upcoming);
+    }
+    log({ level: "info", event: "postseason_discovery", month, detected,
+      confirmedGames: post.games.length, deferredGames: post.deferredGames.length,
+      activeToday: post.games.some(game => game.date === dateKey && !["FINISHED", "CANCELLED", "POSTPONED"].includes(game.status)) });
+    return result;
   }
 
   return {
