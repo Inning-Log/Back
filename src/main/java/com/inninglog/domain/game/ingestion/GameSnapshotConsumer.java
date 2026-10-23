@@ -33,7 +33,8 @@ public class GameSnapshotConsumer {
                     sqs.deleteMessage(DeleteMessageRequest.builder().queueUrl(queueUrl).receiptHandle(message.receiptHandle()).build());
                 } catch (RuntimeException error) {
                     // Leave unacknowledged for retry / the queue's configured DLQ. Do not log payloads.
-                    log.warn("Game snapshot {} was not acknowledged ({})", message.messageId(), error.getClass().getSimpleName());
+                    log.warn("Game snapshot {} was not acknowledged ({}, {})", message.messageId(),
+                            error.getClass().getSimpleName(), error instanceof GameImportException ? error.getMessage() : "IMPORT_FAILED");
                 }
             }
         } catch (RuntimeException error) {

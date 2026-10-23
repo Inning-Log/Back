@@ -44,7 +44,7 @@ test("actual no-game marker is accepted only in the expected dated scoreboard", 
 });
 
 test("one-shot requests two resources, persists month and empty day, creates no schedule", async () => {
-  const { config } = await loadFargateConfig({ profile: "kbo-live", env: { CRAWLER_KILL_SWITCH: "false" } });
+  const { config } = await loadFargateConfig({ profile: "kbo-live", env: { CRAWLER_KILL_SWITCH: "false", CRAWLER_SCHEDULE_SERIES: "0,9,6" } });
   const state = new MemoryStateStore();
   const calls = [];
   let clock = Date.parse("2026-09-14T03:00:00Z");

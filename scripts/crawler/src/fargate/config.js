@@ -85,7 +85,7 @@ const configSchema = z.object({
     persistence: z.enum(["memory", "aws"]),
   }).strict(),
   scheduleTransport: z.enum(["html", "page-ajax"]).default("html"),
-  scheduleSeries: z.enum(["0,9,6", "1", "3,4,5,7"]).default("0,9,6"),
+  scheduleSeries: z.enum(["auto", "0,9,6", "1", "3,4,5,7"]).default("0,9,6"),
   identity: z.object({
     product: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{2,63}$/),
     version: z.string().min(1).max(32),

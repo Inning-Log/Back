@@ -96,6 +96,7 @@ profiles:
     enabled: true
     provider: kbo
     scheduleTransport: page-ajax
+    scheduleSeries: auto
     identity:
       contact: https://github.com/Inning-Log/Back
     runtime:

@@ -4,6 +4,7 @@ Build the current clean checkout, register a revision, run one Fargate task.
 Does not change recurring schedules. Only prints non-secret verification data.
 """
 import json
+import argparse
 import os
 import pathlib
 import subprocess
@@ -11,6 +12,10 @@ import sys
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser()
+parser.add_argument("--activate-planner", action="store_true",
+                    help="Verify a daily planning task, then update the existing recurring planner")
+args = parser.parse_args()
 os.chdir(ROOT)
 REGION = "ap-northeast-2"
 ACCOUNT = "590385682315"
@@ -51,7 +56,7 @@ environment = {e["name"]: e["value"] for e in container.get("environment", [])}
 expected_revision = previous["taskDefinitionArn"].rsplit(":", 1)[0] + ":" + str(previous["revision"] + 1)
 environment.update(CRAWLER_PROFILE="kbo-live", CRAWLER_KILL_SWITCH="false", CRAWLER_ENABLED="true",
                    CRAWLER_OPERATOR_CONTACT="https://github.com/Inning-Log/Back",
-                   CRAWLER_ECS_TASK_DEFINITION=expected_revision)
+                   CRAWLER_ECS_TASK_DEFINITION=expected_revision, CRAWLER_SCHEDULE_SERIES="auto")
 # Keep approval metadata truthful: this is the operator-requested MVP mode.
 for key in list(environment):
     if key.startswith("CRAWLER_AUTH_") or key == "CRAWLER_ROBOTS_EXCEPTION_GRANTED":
@@ -70,7 +75,7 @@ network = {"awsvpcConfiguration": {
 cluster = environment["CRAWLER_ECS_CLUSTER_ARN"]
 response = aws("ecs", "run-task", "--cluster", cluster, "--task-definition", revision,
                "--launch-type", "FARGATE", "--count", "1", "--network-configuration", json.dumps(network),
-               "--overrides", json.dumps({"containerOverrides": [{"name": "crawler", "command": ["--collect-once", "--profile", "kbo-live"]}]}))
+               "--overrides", json.dumps({"containerOverrides": [{"name": "crawler", "command": ["--plan-day" if args.activate_planner else "--collect-once", "--profile", "kbo-live"]}]}))
 if response.get("failures") or not response.get("tasks"):
     sys.exit(json.dumps(response.get("failures", response)))
 task = response["tasks"][0]["taskArn"]
@@ -85,12 +90,44 @@ while time.monotonic() < deadline:
 else:
     sys.exit("Task still active after 10 minutes; inspect the printed task ARN")
 log = container.get("logConfiguration", {}).get("options", {})
+completed = None
 if log.get("awslogs-group") and log.get("awslogs-stream-prefix"):
     stream = f'{log["awslogs-stream-prefix"]}/crawler/{task.rsplit("/", 1)[1]}'
     events = aws("logs", "get-log-events", "--log-group-name", log["awslogs-group"], "--log-stream-name", stream)
     for event in events.get("events", []):
         print(event["message"], flush=True)
+        try:
+            record = json.loads(event["message"])
+            if record.get("event") == "run_completed":
+                completed = record
+        except (ValueError, TypeError):
+            pass
 exit_code = next(c for c in item["containers"] if c["name"] == "crawler").get("exitCode")
 print(json.dumps({"exitCode": exit_code, "stoppedReason": item.get("stoppedReason"), "taskArn": task}), flush=True)
 if exit_code != 0:
     sys.exit(1)
+
+if args.activate_planner:
+    if not completed or completed.get("action") != "plan-day" or completed.get("skipped") or completed.get("anomalies"):
+        sys.exit("Planner verification did not complete cleanly; recurring target was not changed")
+    name = "inning-log-crawler-plan-daily"
+    group = environment["CRAWLER_SCHEDULER_GROUP"]
+    old = aws("scheduler", "get-schedule", "--name", name, "--group-name", group)
+    old_task = old["Target"]["EcsParameters"]["TaskDefinitionArn"]
+    if old_task != previous["taskDefinitionArn"]:
+        sys.exit("Planner target changed concurrently; refusing to overwrite it")
+    backup = ROOT / "out" / "releases" / tag
+    backup.mkdir(parents=True, exist_ok=True)
+    allowed = ["Name", "GroupName", "ScheduleExpression", "StartDate", "EndDate", "Description",
+               "ScheduleExpressionTimezone", "State", "FlexibleTimeWindow", "Target", "KmsKeyArn", "ActionAfterCompletion"]
+    update = {key: old[key] for key in allowed if key in old}
+    backup_file = backup / "planner-before.json"
+    backup_file.write_text(json.dumps(update, indent=2))
+    update["Target"]["EcsParameters"]["TaskDefinitionArn"] = revision
+    aws("scheduler", "update-schedule", "--cli-input-json", json.dumps(update))
+    verified = aws("scheduler", "get-schedule", "--name", name, "--group-name", group)
+    if verified["Target"]["EcsParameters"]["TaskDefinitionArn"] != revision:
+        sys.exit("Planner read-back failed; inspect planner and saved rollback input")
+    print(json.dumps({"plannerActivated": name, "revision": revision,
+                      "expression": verified["ScheduleExpression"], "state": verified["State"],
+                      "rollbackInput": str(backup_file)}), flush=True)
