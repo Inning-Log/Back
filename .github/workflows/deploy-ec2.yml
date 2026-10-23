@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: deploy-ec2
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   IMAGE_TAR: inning-log-${{ github.sha }}.tar
@@ -192,7 +192,7 @@ jobs:
             "$EC2_USER@$EC2_HOST" \
             "mkdir -p '$REMOTE_DEPLOY_DIR' \
             && rm -f '$REMOTE_DEPLOY_DIR'/inning-log-*.tar \
-            && if [ -n \"\$(docker ps -aq --filter status=exited)\" ]; then \
+            && if [ -n \"\$(docker ps -a --filter status=exited --format '{{.Names}}' | grep -vx '$CONTAINER_NAME-rollback')\" ]; then \
                  echo 'Stopped containers pin Docker images. Review and remove them before deployment:'; \
                  docker ps -a --filter status=exited --format 'table {{.Names}}\\t{{.Status}}\\t{{.Image}}'; \
                  exit 1; \
@@ -229,13 +229,20 @@ jobs:
 
 
       - name: Stop previous container
+        id: stop-previous
         run: |
           ssh \
             -i ~/.ssh/ec2_key \
             -p "$EC2_PORT" \
             "$EC2_USER@$EC2_HOST" \
-            "docker stop '$CONTAINER_NAME' 2>/dev/null || true; \
-            docker rm '$CONTAINER_NAME' 2>/dev/null || true"
+            "set -e; \
+            if docker container inspect '$CONTAINER_NAME' >/dev/null 2>&1; then \
+              if docker container inspect '$CONTAINER_NAME-rollback' >/dev/null 2>&1; then \
+                docker rm '$CONTAINER_NAME-rollback'; \
+              fi; \
+              docker stop '$CONTAINER_NAME'; \
+              docker rename '$CONTAINER_NAME' '$CONTAINER_NAME-rollback'; \
+            fi"
 
 
       - name: Start new container
@@ -275,6 +282,7 @@ jobs:
 
 
       - name: Health check
+        id: health
         run: |
           ssh \
             -i ~/.ssh/ec2_key \
@@ -296,8 +304,30 @@ jobs:
             docker logs --tail 100 '$CONTAINER_NAME'; \
             exit 1"
 
+      - name: Restore previous container after failed deployment
+        if: always() && steps.stop-previous.outcome == 'success' && steps.health.outcome != 'success'
+        run: |
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -p "$EC2_PORT" \
+            "$EC2_USER@$EC2_HOST" \
+            "set -e; \
+            if docker container inspect '$CONTAINER_NAME-rollback' >/dev/null 2>&1; then \
+              if docker container inspect '$CONTAINER_NAME' >/dev/null 2>&1; then \
+                docker stop '$CONTAINER_NAME' || true; \
+                docker rm '$CONTAINER_NAME'; \
+              fi; \
+              docker rename '$CONTAINER_NAME-rollback' '$CONTAINER_NAME'; \
+              docker start '$CONTAINER_NAME'; \
+              for i in \$(seq 1 20); do \
+                if curl -fsS http://127.0.0.1:$APP_HOST_PORT/api/health; then exit 0; fi; \
+                sleep 3; \
+              done; \
+              exit 1; \
+            fi"
 
-      # 현재 실행 중인 컨테이너가 사용하지 않는 과거 이미지 제거
+
+      # 실행 중인 컨테이너 및 직전 rollback 컨테이너가 참조하는 이미지는 보존한다.
       - name: Cleanup remote temporary files
         if: always()
         run: |
