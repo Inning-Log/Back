@@ -11,8 +11,17 @@ public record PushNotification(
         NotificationType type,
         String title,
         String body,
-        Map<String, String> data
+        Map<String, String> data,
+        java.time.Instant expiresAt
 ) {
+
+    public PushNotification(NotificationType type, String title, String body, Map<String, String> data) {
+        this(type, title, body, data, null);
+    }
+
+    public PushNotification withExpiry(java.time.Instant expiresAt) {
+        return new PushNotification(type, title, body, data, expiresAt);
+    }
 
     public PushNotification {
         Objects.requireNonNull(type, "type must not be null");
@@ -39,7 +48,7 @@ public record PushNotification(
     public PushNotification withSystemData(Map<String, String> systemData) {
         Map<String, String> mergedData = new LinkedHashMap<>(data);
         mergedData.putAll(systemData);
-        return new PushNotification(type, title, body, mergedData);
+        return new PushNotification(type, title, body, mergedData, expiresAt);
     }
 
     private static void validateDataEntry(String key, String value) {

@@ -51,6 +51,7 @@ public class NotificationDispatchService {
     private final NotificationDispatchProperties properties;
     private final NotificationMetrics metrics;
     private final Clock clock;
+    private final NotificationRelevancePolicy relevancePolicy;
     private final TransactionTemplate requiresNewTransaction;
 
     public NotificationDispatchService(
@@ -63,7 +64,8 @@ public class NotificationDispatchService {
             NotificationDispatchProperties properties,
             NotificationMetrics metrics,
             Clock clock,
-            PlatformTransactionManager transactionManager
+            PlatformTransactionManager transactionManager,
+            NotificationRelevancePolicy relevancePolicy
     ) {
         this.outboxRepository = outboxRepository;
         this.targetRepository = targetRepository;
@@ -74,6 +76,7 @@ public class NotificationDispatchService {
         this.properties = properties;
         this.metrics = metrics;
         this.clock = clock;
+        this.relevancePolicy = relevancePolicy;
         this.requiresNewTransaction = new TransactionTemplate(transactionManager);
         this.requiresNewTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -154,6 +157,18 @@ public class NotificationDispatchService {
             return ClaimAttempt.workedWithoutClaim();
         }
 
+        String cancellation = relevancePolicy.cancellationReason(outbox, now);
+        if (cancellation != null) {
+            if ("INVALID_PAYLOAD".equals(cancellation)) {
+                batch.forEach(target -> target.markDead(cancellation, now));
+            } else {
+                targetRepository.deleteAll(batch);
+            }
+            targetRepository.flush();
+            completeOutboxWhenFinished(outbox, now);
+            metrics.recordCancelledEvent(outbox.getNotificationType(), cancellation);
+            return ClaimAttempt.workedWithoutClaim();
+        }
         if (!preferencePolicy.isPushEnabled(outbox.getUserId(), outbox.getNotificationType())) {
             int cancelledCount = batch.size();
             targetRepository.deleteAll(batch);
@@ -211,7 +226,8 @@ public class NotificationDispatchService {
                     "notificationId", String.valueOf(outbox.getNotificationId()),
                     "schemaVersion", "1",
                     "occurredAt", outbox.getCreatedAt().toString(),
-                    "audienceUserId", String.valueOf(outbox.getUserId())));
+                    "audienceUserId", String.valueOf(outbox.getUserId())))
+                    .withExpiry(relevancePolicy.expiresAt(outbox));
         } catch (InvalidPushPayloadException exception) {
             claimableTargets.forEach(target -> {
                 target.markDead("INVALID_PAYLOAD", now);
@@ -246,6 +262,12 @@ public class NotificationDispatchService {
         }
 
         NotificationOutbox outbox = pending.getFirst();
+        String cancellation = relevancePolicy.cancellationReason(outbox, now);
+        if (cancellation != null) {
+            outbox.markCompleted("INVALID_PAYLOAD".equals(cancellation), now);
+            metrics.recordCancelledEvent(outbox.getNotificationType(), cancellation);
+            return ClaimAttempt.workedWithoutClaim();
+        }
         if (!preferencePolicy.isPushEnabled(outbox.getUserId(), outbox.getNotificationType())) {
             outbox.markCompleted(false, now);
             metrics.recordCancelledPreference(outbox.getNotificationType(), 0);

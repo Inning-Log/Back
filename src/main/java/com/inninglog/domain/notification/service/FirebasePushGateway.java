@@ -63,11 +63,15 @@ public class FirebasePushGateway implements PushGateway {
                 .putAllData(notification.data())
                 .addAllFids(targets.stream().map(PushTarget::installationId).toList());
         String link = notification.data().get("link");
-        if (link != null) {
-            messageBuilder.setWebpushConfig(WebpushConfig.builder()
-                    .setFcmOptions(WebpushFcmOptions.withLink(link))
-                    .build());
+        WebpushConfig.Builder webpush = WebpushConfig.builder();
+        if (notification.expiresAt() != null) {
+            long ttl = Math.max(0, java.time.Duration.between(java.time.Instant.now(), notification.expiresAt()).toSeconds());
+            webpush.putHeader("TTL", Long.toString(Math.min(ttl, 604800)));
         }
+        if (link != null) {
+            webpush.setFcmOptions(WebpushFcmOptions.withLink(link));
+        }
+        if (link != null || notification.expiresAt() != null) messageBuilder.setWebpushConfig(webpush.build());
         MulticastMessage message = messageBuilder.build();
 
         try {
