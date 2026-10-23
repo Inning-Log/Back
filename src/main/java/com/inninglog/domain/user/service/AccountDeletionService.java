@@ -4,6 +4,7 @@ import com.inninglog.domain.auth.repository.AuthRefreshTokenRepository;
 import com.inninglog.domain.game.repository.GameRepository;
 import com.inninglog.domain.friendship.repository.FriendshipRepository;
 import com.inninglog.domain.notification.repository.UserPushRegistrationRepository;
+import com.inninglog.domain.notification.repository.UserNotificationRepository;
 import com.inninglog.domain.oauth.repository.OAuthAccountRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.exception.UserNotFoundException;
@@ -23,6 +24,7 @@ public class AccountDeletionService {
     private final FriendshipRepository friendshipRepository;
     private final Clock clock;
     private final GameRepository gameRepository;
+    private final UserNotificationRepository notificationRepository;
 
     public AccountDeletionService(
             UserRepository userRepository,
@@ -31,7 +33,8 @@ public class AccountDeletionService {
             UserPushRegistrationRepository pushRegistrationRepository,
             FriendshipRepository friendshipRepository,
             Clock clock,
-            GameRepository gameRepository
+            GameRepository gameRepository,
+            UserNotificationRepository notificationRepository
     ) {
         this.userRepository = userRepository;
         this.oAuthAccountRepository = oAuthAccountRepository;
@@ -40,6 +43,7 @@ public class AccountDeletionService {
         this.friendshipRepository = friendshipRepository;
         this.clock = clock;
         this.gameRepository = gameRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     @Transactional
@@ -49,7 +53,14 @@ public class AccountDeletionService {
 
         refreshTokenRepository.revokeAllActiveByUserId(user.getId(), now);
         pushRegistrationRepository.disableAllByUserId(user.getId(), now);
+        var requestNotificationIds = notificationRepository.findUnreadRequestIdsForParticipant(user.getId());
         friendshipRepository.deleteAllByUserId(user.getId());
+        // Lock relationships before notifications, matching accept/reject/delete. Updating inbox first
+        // would invert that order and could deadlock with a concurrent resolution of the same request.
+        for (int start = 0; start < requestNotificationIds.size(); start += 1000) {
+            notificationRepository.markSelectedRead(
+                    requestNotificationIds.subList(start, Math.min(start + 1000, requestNotificationIds.size())), now);
+        }
         gameRepository.deleteUserLogs(user.getId(), now);
         if (!user.isDeleted()) {
             oAuthAccountRepository.findAllByUserId(user.getId())

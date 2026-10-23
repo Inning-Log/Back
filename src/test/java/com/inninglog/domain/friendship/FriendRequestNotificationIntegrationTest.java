@@ -125,6 +125,49 @@ class FriendRequestNotificationIntegrationTest {
         unread(receiver, 1);
     }
 
+    @Test
+    void deletingRequesterReadsInvisibleRequestButPreservesOtherRequestsAndCommentNotifications() throws Exception {
+        User deletingRequester = user();
+        User receiver = user();
+        User otherRequester = user();
+        long deletedRequest = request(deletingRequester, receiver);
+        long otherRequest = request(otherRequester, receiver);
+        jdbc.update("""
+                insert into notifications(event_key,user_id,notification_type,title,data_json,created_at)
+                values (?,?,'TIMELINE_COMMENT','댓글','{}',current_timestamp)
+                """, "unrelated:" + UUID.randomUUID(), receiver.getId());
+        unread(receiver, 3);
+
+        mvc.perform(delete("/api/users/me").header("Authorization", auth(deletingRequester)))
+                .andExpect(status().isNoContent());
+
+        assertThat(notification(receiver, deletedRequest, 1).getReadAt()).isNotNull();
+        assertThat(notification(receiver, otherRequest, 1).getReadAt()).isNull();
+        unread(receiver, 2);
+        assertThat(jdbc.queryForObject("select count(*) from friendships where id = ?", Long.class, deletedRequest)).isZero();
+        assertThat(users.findById(deletingRequester.getId()).orElseThrow().isDeleted()).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from notifications where user_id=? and notification_type='TIMELINE_COMMENT' and read_at is null",
+                Long.class, receiver.getId())).isEqualTo(1);
+    }
+
+    @Test
+    void accountDeletionPreservesAlreadyReadRequestTimestampAndResolvesLatestRevision() throws Exception {
+        User requester = user();
+        User receiver = user();
+        long id = request(requester, receiver);
+        resolve(receiver, id, "reject");
+        Instant originalReadAt = notification(receiver, id, 1).getReadAt();
+        request(requester, receiver);
+        unread(receiver, 1);
+
+        mvc.perform(delete("/api/users/me").header("Authorization", auth(requester)))
+                .andExpect(status().isNoContent());
+
+        assertThat(notification(receiver, id, 1).getReadAt()).isEqualTo(originalReadAt);
+        assertThat(notification(receiver, id, 2).getReadAt()).isNotNull();
+        unread(receiver, 0);
+    }
+
     private User user() {
         String name = "fn" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         User user = new User(name + "@example.com", null);

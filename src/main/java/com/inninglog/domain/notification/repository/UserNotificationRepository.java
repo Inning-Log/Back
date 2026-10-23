@@ -23,6 +23,24 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
 
     long countByUserIdAndReadAtIsNull(Long userId);
 
+    // Capture IDs before the relationship rows disappear. The deleting account's user lock prevents
+    // a new friend request involving that account from being created during this transaction.
+    @Query(value = """
+            select n.id from notifications n join friendships f
+              on n.user_id = f.receiver_id
+             and n.event_key = concat('friendship:', cast(f.id as varchar), ':requested:', cast(f.request_revision as varchar))
+             where n.notification_type = 'FRIEND_REQUEST' and n.read_at is null
+               and (f.requester_id = :userId or f.receiver_id = :userId)
+            """, nativeQuery = true)
+    List<Long> findUnreadRequestIdsForParticipant(@Param("userId") Long userId);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update UserNotification n set n.readAt = :readAt
+             where n.id in :ids and n.readAt is null
+            """)
+    int markSelectedRead(@Param("ids") List<Long> ids, @Param("readAt") Instant readAt);
+
     @Modifying(flushAutomatically = true)
     @Query("""
             update UserNotification n set n.readAt = :readAt
