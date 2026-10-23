@@ -41,6 +41,15 @@ app:
       region: ${GAME_SQS_REGION:ap-northeast-2}
       queue-url: ${GAME_SQS_QUEUE_URL:}
       poll-delay: ${GAME_SQS_POLL_DELAY:2s}
+  videos:
+    enabled: ${VIDEO_S3_ENABLED:false}
+    bucket: ${VIDEO_S3_BUCKET:}
+    region: ${VIDEO_S3_REGION:ap-northeast-2}
+    key-prefix: ${VIDEO_S3_KEY_PREFIX:inning-records}
+    upload-url-ttl: ${VIDEO_UPLOAD_URL_TTL:10m}
+    download-url-ttl: ${VIDEO_DOWNLOAD_URL_TTL:10m}
+    max-size: ${VIDEO_MAX_SIZE:500MB}
+    allowed-content-types: ${VIDEO_ALLOWED_CONTENT_TYPES:video/mp4,video/quicktime,video/webm}
   firebase:
     enabled: ${FIREBASE_ENABLED:false}
     project-id: ${FIREBASE_PROJECT_ID:}

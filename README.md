@@ -123,6 +123,13 @@ only the owner can create, edit, or delete them. Multiple records in one inning
 are supported. See [Timeline API and frontend routing contract](docs/timeline-api.md)
 for record endpoints, pagination, viewing prerequisites, and video integration limits.
 
+## Inning record videos
+
+One video per inning record, uploaded and downloaded directly to/from S3 with
+presigned URLs (`/api/inning-records/{recordId}/video`). Storage is disabled by
+default; enable it with `VIDEO_S3_ENABLED=true` and `VIDEO_S3_BUCKET`. See
+[Inning record video API](docs/video-api.md).
+
 ## Push notifications
 
 FCM delivery is disabled by default, so local development and tests do not need
