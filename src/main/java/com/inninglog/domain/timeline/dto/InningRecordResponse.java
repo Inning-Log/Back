@@ -14,7 +14,9 @@ public record InningRecordResponse(
     public static InningRecordResponse from(InningRecord record) {
         return new InningRecordResponse(record.id(), record.gameId(), record.userGameLogId(),
                 record.clientRecordId(), record.inning(), record.half(), record.recordedAt(), record.text(),
-                record.homeScore(), record.awayScore(), record.scoreObservedAt(), "UNAVAILABLE",
+                record.homeScore(), record.awayScore(), record.scoreObservedAt(),
+                // UNAVAILABLE: no video, PENDING: upload not confirmed yet, READY: viewable through the video API.
+                record.videoStatus() == null ? "UNAVAILABLE" : record.videoStatus(),
                 record.createdAt(), record.updatedAt());
     }
 }

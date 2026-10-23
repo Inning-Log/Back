@@ -20,7 +20,10 @@ import org.springframework.stereotype.Repository;
 public class TimelineRepository {
     private final JdbcTemplate jdbc;
     private static final String SELECT_RECORD = """
-            select r.*, l.user_id, l.game_id from inning_records r
+            select r.*, l.user_id, l.game_id,
+                (select v.status from inning_record_videos v where v.inning_record_id = r.id and v.deleted_at is null
+                  order by v.id desc limit 1) video_status
+            from inning_records r
             join user_game_logs l on l.id = r.user_game_log_id
             where l.deleted_at is null
             """;
@@ -30,7 +33,7 @@ public class TimelineRepository {
             rs.getInt("inning_number"), rs.getString("half") == null ? null : InningHalf.valueOf(rs.getString("half")),
             rs.getString("caption"), instant(rs, "recorded_at"), rs.getObject("home_score_at_recording", Integer.class),
             rs.getObject("away_score_at_recording", Integer.class), instant(rs, "score_observed_at"),
-            instant(rs, "created_at"), instant(rs, "updated_at"), instant(rs, "deleted_at"));
+            instant(rs, "created_at"), instant(rs, "updated_at"), instant(rs, "deleted_at"), rs.getString("video_status"));
     private static final RowMapper<Owner> OWNER_MAPPER = (rs, index) -> new Owner(
             rs.getLong("id"), rs.getString("username"), rs.getString("nickname"), rs.getString("profile_image_url"));
 

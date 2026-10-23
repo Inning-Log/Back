@@ -7,5 +7,5 @@ public record InningRecord(
         long id, long userGameLogId, long userId, long gameId, UUID clientRecordId,
         String requestFingerprint, int inning, InningHalf half, String text, Instant recordedAt,
         Integer homeScore, Integer awayScore, Instant scoreObservedAt,
-        Instant createdAt, Instant updatedAt, Instant deletedAt
+        Instant createdAt, Instant updatedAt, Instant deletedAt, String videoStatus
 ) {}

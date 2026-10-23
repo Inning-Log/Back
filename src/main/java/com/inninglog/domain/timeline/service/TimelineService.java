@@ -11,6 +11,7 @@ import com.inninglog.domain.timeline.dto.*;
 import com.inninglog.domain.timeline.model.InningRecord;
 import com.inninglog.domain.timeline.repository.TimelineRepository;
 import com.inninglog.domain.timeline.repository.TimelineRepository.Position;
+import com.inninglog.domain.video.service.VideoService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
@@ -30,14 +31,16 @@ public class TimelineService {
     private final GameUserAccess access;
     private final Clock clock;
     private final ObjectMapper mapper;
+    private final VideoService videos;
 
     public TimelineService(TimelineRepository records, GameRepository games, GameUserAccess access,
-                           Clock clock, ObjectMapper mapper) {
+                           Clock clock, ObjectMapper mapper, VideoService videos) {
         this.records = records;
         this.games = games;
         this.access = access;
         this.clock = clock;
         this.mapper = mapper;
+        this.videos = videos;
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -139,6 +142,7 @@ public class TimelineService {
         var user = access.require(subject, true);
         var record = requireOwnedRecord(user.getId(), recordId, true);
         records.delete(record.id(), clock.instant());
+        videos.deleteForRecord(record.id());
     }
 
     private InningRecord requireOwnedRecord(long userId, long recordId, boolean includeDeleted) {
