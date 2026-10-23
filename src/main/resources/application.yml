@@ -34,6 +34,10 @@ springdoc:
     tags-sorter: alpha
 
 app:
+  profile-images:
+    max-size: ${PROFILE_IMAGE_MAX_SIZE:10MB}
+    upload-url-ttl: ${PROFILE_IMAGE_UPLOAD_URL_TTL:5m}
+    download-url-ttl: ${PROFILE_IMAGE_DOWNLOAD_URL_TTL:5m}
   notifications:
     frontend-origin: ${NOTIFICATION_FRONTEND_ORIGIN:}
     retention-days: ${NOTIFICATION_OUTBOX_RETENTION_DAYS:30}
