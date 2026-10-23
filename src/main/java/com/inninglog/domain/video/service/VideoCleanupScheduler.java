@@ -13,7 +13,7 @@ public class VideoCleanupScheduler {
     private final VideoCleanupService cleanup;
     public VideoCleanupScheduler(VideoCleanupService cleanup) { this.cleanup = cleanup; }
 
-    @Scheduled(fixedDelayString = "${app.videos.cleanup-delay:PT10M}",
+    @Scheduled(scheduler = "videoCleanupExecutor", fixedDelayString = "${app.videos.cleanup-delay:PT10M}",
             initialDelayString = "${app.videos.cleanup-initial-delay:PT2M}")
     public void run() {
         for (long id : cleanup.candidates()) {
