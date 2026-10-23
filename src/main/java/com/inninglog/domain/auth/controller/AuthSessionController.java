@@ -98,10 +98,15 @@ public class AuthSessionController {
             @ApiResponse(responseCode = "401", description = "JWT가 없거나 이미 무효화됨", content = @Content)
     })
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(JwtAuthenticationToken authentication) {
-        authSessionService.logout(authentication.getName(), sessionId(authentication));
+    public ResponseEntity<Void> logout(JwtAuthenticationToken authentication,
+            @Valid @RequestBody(required = false) LogoutRequest request) {
+        authSessionService.logout(authentication.getName(), sessionId(authentication),
+                request == null ? null : request.installationId());
         return ResponseEntity.noContent().build();
     }
+
+    @Schema(description = "선택 입력. 현재 설치의 푸시 해제와 세션 폐기를 한 트랜잭션으로 처리")
+    public record LogoutRequest(@NotBlank @Size(max = 255) String installationId) {}
 
     @Operation(summary = "모든 세션 로그아웃",
             description = "현재 사용자의 모든 로그인 세션을 폐기하여 모든 기기의 Access/Refresh Token을 즉시 무효화합니다.")

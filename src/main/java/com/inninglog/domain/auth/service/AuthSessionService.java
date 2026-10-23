@@ -5,6 +5,7 @@ import com.inninglog.domain.auth.entity.AuthRefreshToken;
 import com.inninglog.domain.auth.exception.InvalidRefreshTokenException;
 import com.inninglog.domain.auth.repository.AuthRefreshTokenRepository;
 import com.inninglog.domain.user.entity.User;
+import com.inninglog.domain.notification.service.PushRegistrationService;
 import com.inninglog.domain.user.entity.UserRole;
 import com.inninglog.domain.user.exception.AccountDeletedException;
 import com.inninglog.domain.user.exception.UserNotFoundException;
@@ -26,6 +27,7 @@ public class AuthSessionService {
     private final RefreshTokenCodec refreshTokenCodec;
     private final Clock clock;
     private final AuthProperties authProperties;
+    private final PushRegistrationService pushRegistrations;
 
     public AuthSessionService(
             AuthRefreshTokenRepository refreshTokenRepository,
@@ -33,7 +35,8 @@ public class AuthSessionService {
             JwtTokenProvider jwtTokenProvider,
             RefreshTokenCodec refreshTokenCodec,
             Clock clock,
-            AuthProperties authProperties
+            AuthProperties authProperties,
+            PushRegistrationService pushRegistrations
     ) {
         this.refreshTokenRepository = refreshTokenRepository;
         this.userRepository = userRepository;
@@ -41,6 +44,7 @@ public class AuthSessionService {
         this.refreshTokenCodec = refreshTokenCodec;
         this.clock = clock;
         this.authProperties = authProperties;
+        this.pushRegistrations = pushRegistrations;
     }
 
     @Transactional
@@ -102,7 +106,15 @@ public class AuthSessionService {
     }
 
     @Transactional
+    public void logout(String subject, Long sessionId, String installationId) {
+        // Same lock order as registration: global registration lock, user, then session.
+        if (installationId != null) pushRegistrations.disable(subject, installationId);
+        logout(subject, sessionId);
+    }
+
+    @Transactional
     public void logoutAll(String subject) {
+        pushRegistrations.disableAll(subject);
         User user = lockUser(subject);
         refreshTokenRepository.revokeAllActiveByUserId(user.getId(), clock.instant());
     }

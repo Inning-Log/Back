@@ -144,6 +144,7 @@ public class FriendshipService {
         requireFriendCandidate(friendship.getRequester());
 
         if (friendship.getStatus() == FriendshipStatus.ACCEPTED) {
+            notificationService.friendRequestResolved(friendship);
             return FriendshipResponse.from(friendship, currentUser.getId());
         }
         if (friendship.getStatus() != FriendshipStatus.PENDING) {
@@ -151,6 +152,7 @@ public class FriendshipService {
         }
 
         friendship.accept(clock.instant());
+        notificationService.friendRequestResolved(friendship);
         notificationService.friendRequestAccepted(friendship);
         return FriendshipResponse.from(friendship, currentUser.getId());
     }
@@ -164,6 +166,7 @@ public class FriendshipService {
         requireFriendCandidate(friendship.getRequester());
 
         if (friendship.getStatus() == FriendshipStatus.REJECTED) {
+            notificationService.friendRequestResolved(friendship);
             return FriendshipResponse.from(friendship, currentUser.getId());
         }
         if (friendship.getStatus() != FriendshipStatus.PENDING) {
@@ -171,6 +174,7 @@ public class FriendshipService {
         }
 
         friendship.reject(clock.instant());
+        notificationService.friendRequestResolved(friendship);
         return FriendshipResponse.from(friendship, currentUser.getId());
     }
 
@@ -187,6 +191,7 @@ public class FriendshipService {
             throw new FriendshipActionNotAllowedException(
                     "The receiver must accept or reject a pending friend request.");
         }
+        notificationService.friendRequestResolved(friendship);
         friendshipRepository.delete(friendship);
     }
 

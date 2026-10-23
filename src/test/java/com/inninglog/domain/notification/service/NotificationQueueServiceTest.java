@@ -73,7 +73,7 @@ class NotificationQueueServiceTest {
 
     private int serializedBytes(PushNotification notification) throws Exception {
         return objectMapper.writeValueAsBytes(Map.of(
-                "notification", Map.of("title", notification.title()),
-                "data", notification.data())).length;
+                "data", notification.webData(),
+                "webpush", Map.of("headers", Map.of("TTL", "604800")))).length;
     }
 }

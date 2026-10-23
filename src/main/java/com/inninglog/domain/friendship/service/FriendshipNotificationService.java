@@ -4,6 +4,9 @@ import com.inninglog.domain.friendship.entity.Friendship;
 import com.inninglog.domain.notification.entity.NotificationType;
 import com.inninglog.domain.notification.service.NotificationQueueService;
 import com.inninglog.domain.notification.service.PushNotification;
+import com.inninglog.domain.notification.service.NotificationLinkService;
+import com.inninglog.domain.notification.repository.UserNotificationRepository;
+import java.time.Clock;
 import com.inninglog.domain.user.entity.User;
 import java.util.Map;
 import org.springframework.stereotype.Component;
@@ -12,9 +15,21 @@ import org.springframework.stereotype.Component;
 public class FriendshipNotificationService {
 
     private final NotificationQueueService notificationQueueService;
+    private final UserNotificationRepository notifications;
+    private final NotificationLinkService links;
+    private final Clock clock;
 
-    public FriendshipNotificationService(NotificationQueueService notificationQueueService) {
+    public FriendshipNotificationService(NotificationQueueService notificationQueueService,
+            UserNotificationRepository notifications, NotificationLinkService links, Clock clock) {
         this.notificationQueueService = notificationQueueService;
+        this.notifications = notifications;
+        this.links = links;
+        this.clock = clock;
+    }
+
+    public void friendRequestResolved(Friendship friendship) {
+        notifications.markEventRead(friendship.getReceiver().getId(),
+                idempotencyKey("requested", friendship), clock.instant());
     }
 
     public void friendRequestCreated(Friendship friendship) {
@@ -27,11 +42,11 @@ public class FriendshipNotificationService {
                         NotificationType.FRIEND_REQUEST,
                         "새 친구 요청이 도착했어요",
                         displayName(requester) + "님이 친구 요청을 보냈습니다.",
-                        Map.of(
+                        links.friendshipData(Map.of(
                                 "friendshipId", friendship.getId().toString(),
                                 "actorUserId", requester.getId().toString(),
                                 "requestRevision", String.valueOf(friendship.getRequestRevision()),
-                                "screen", "FRIEND_REQUESTS")));
+                                "screen", "FRIEND_REQUESTS"), false)));
     }
 
     public void friendRequestAccepted(Friendship friendship) {
@@ -44,11 +59,11 @@ public class FriendshipNotificationService {
                         NotificationType.FRIEND_ACCEPTED,
                         "친구 요청이 수락됐어요",
                         displayName(receiver) + "님과 친구가 되었습니다.",
-                        Map.of(
+                        links.friendshipData(Map.of(
                                 "friendshipId", friendship.getId().toString(),
                                 "actorUserId", receiver.getId().toString(),
                                 "requestRevision", String.valueOf(friendship.getRequestRevision()),
-                                "screen", "FRIENDS")));
+                                "screen", "FRIENDS"), true)));
     }
 
     private static String idempotencyKey(String event, Friendship friendship) {

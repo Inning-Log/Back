@@ -18,20 +18,12 @@ public class FcmPayloadValidator {
     }
 
     public void validate(PushNotification notification) {
-        Map<String, String> notificationPayload = new LinkedHashMap<>();
-        notificationPayload.put("title", notification.title());
-        if (notification.body() != null) {
-            notificationPayload.put("body", notification.body());
-        }
-
         Map<String, Object> messagePayload = new LinkedHashMap<>();
-        messagePayload.put("notification", notificationPayload);
-        messagePayload.put("data", notification.data());
-        String link = notification.data().get("link");
-        if (link != null) {
-            messagePayload.put("webpush", Map.of(
-                    "fcm_options", Map.of("link", link)));
-        }
+        messagePayload.put("data", notification.webData());
+        Map<String, Object> webpush = new LinkedHashMap<>();
+        // Reserve the longest TTL value used by the gateway before persisting the payload.
+        webpush.put("headers", Map.of("TTL", "604800"));
+        messagePayload.put("webpush", webpush);
 
         try {
             int payloadBytes = objectMapper.writeValueAsBytes(messagePayload).length;

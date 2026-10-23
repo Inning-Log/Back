@@ -66,6 +66,13 @@ public class PushRegistrationService {
                 .orElseThrow(() -> new IllegalStateException("Push registration lock row is missing."));
     }
 
+    @Transactional
+    public void disableAll(String subject) {
+        lockRegistrations();
+        User user = findActiveUserForUpdate(subject);
+        registrationRepository.disableAllByUserId(user.getId(), clock.instant());
+    }
+
     private User findActiveUserForUpdate(String subject) {
         try {
             User user = userRepository.findByIdForUpdate(Long.valueOf(subject))

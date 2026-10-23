@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 import com.google.firebase.ErrorCode;
 import com.google.firebase.messaging.BatchResponse;
@@ -18,6 +19,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
+import com.google.firebase.messaging.MulticastMessage;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 
@@ -164,6 +168,29 @@ class FirebasePushGatewayTest {
                 "친구 신청이 도착했어요",
                 null,
                 Map.of("requestId", "10"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void webPushUsesDataOnlySoTheClientCanCheckAudienceBeforeDisplaying() throws Exception {
+        when(firebaseMessaging.sendEachForMulticast(any())).thenReturn(batchResponse);
+        when(batchResponse.getResponses()).thenReturn(List.of(sendResponse));
+        String link = "https://inning-log.vercel.app/home/notifications";
+        var notification = new PushNotification(NotificationType.FRIEND_REQUEST, "서버 제목", "서버 본문",
+                Map.of("title", "덮어쓰면 안 되는 입력", "notificationId", "77", "audienceUserId", "5", "link", link))
+                .withExpiry(java.time.Instant.now().plusSeconds(600));
+        gateway.send(notification, targets());
+        var sent = ArgumentCaptor.forClass(MulticastMessage.class);
+        verify(firebaseMessaging).sendEachForMulticast(sent.capture());
+        assertThat(ReflectionTestUtils.getField(sent.getValue(), "notification")).isNull();
+        Map<String, String> data = (Map<String, String>) ReflectionTestUtils.getField(sent.getValue(), "data");
+        assertThat(data).containsEntry("title", "서버 제목").containsEntry("body", "서버 본문")
+                .containsEntry("notificationId", "77").containsEntry("audienceUserId", "5").containsEntry("link", link);
+        Object webpush = ReflectionTestUtils.getField(sent.getValue(), "webpushConfig");
+        assertThat(ReflectionTestUtils.getField(webpush, "notification")).isNull();
+        assertThat(ReflectionTestUtils.getField(webpush, "fcmOptions")).isNull();
+        Map<String, String> headers = (Map<String, String>) ReflectionTestUtils.getField(webpush, "headers");
+        assertThat(Long.parseLong(headers.get("TTL"))).isBetween(1L, 600L);
     }
 
     private List<PushTarget> targets() {

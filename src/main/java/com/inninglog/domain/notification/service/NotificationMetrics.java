@@ -89,6 +89,11 @@ public class NotificationMetrics {
         counter("inninglog.push.target.total", type, "cancelled_ownership").increment();
     }
 
+    public void recordCancelledEvent(NotificationType type, String reason) {
+        Counter.builder("inninglog.push.cancelled.total").tag("type", type.name())
+                .tag("reason", reason).register(meterRegistry).increment();
+    }
+
     public void recordCancelledPreference(NotificationType type, int targetCount) {
         counter("inninglog.push.outbox.total", type, "cancelled_preference").increment();
         if (targetCount > 0) {

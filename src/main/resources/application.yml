@@ -34,7 +34,12 @@ springdoc:
     tags-sorter: alpha
 
 app:
+  notifications:
+    frontend-origin: ${NOTIFICATION_FRONTEND_ORIGIN:}
+    retention-days: ${NOTIFICATION_OUTBOX_RETENTION_DAYS:30}
   games:
+    notifications:
+      max-observation-age: ${GAME_NOTIFICATION_MAX_OBSERVATION_AGE:PT10M}
     allow-fixtures: ${GAME_IMPORT_ALLOW_FIXTURES:false}
     sqs:
       enabled: ${GAME_SQS_ENABLED:false}
