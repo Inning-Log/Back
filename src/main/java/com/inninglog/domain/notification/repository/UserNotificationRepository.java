@@ -23,6 +23,14 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
 
     long countByUserIdAndReadAtIsNull(Long userId);
 
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update UserNotification n set n.readAt = :readAt
+             where n.userId = :userId and n.eventKey = :eventKey and n.readAt is null
+            """)
+    int markEventRead(@Param("userId") Long userId, @Param("eventKey") String eventKey,
+                      @Param("readAt") Instant readAt);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update UserNotification notification
