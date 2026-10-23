@@ -9,7 +9,7 @@ class NotificationLinkServiceTest {
     @Test
     void followsExistingFrontRoutesAndCarriesIndividualVideoIdentity() {
         var links = new NotificationLinkService("https://inning-log.vercel.app/");
-        assertThat(links.game(12L)).isEqualTo("https://inning-log.vercel.app/timeline/history/12");
+        assertThat(links.game(12L)).isEqualTo("https://inning-log.vercel.app/timeline?gameId=12");
         assertThat(links.video(2L, 3L, 4L, 5L))
                 .isEqualTo("https://inning-log.vercel.app/timeline/history/2?recordId=3&videoId=4&commentId=5");
         assertThat(links.friendshipData(Map.of("friendshipId", "6"), true))

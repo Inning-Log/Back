@@ -24,7 +24,8 @@ public class NotificationLinkService {
     }
 
     public String game(Long gameId) {
-        return url("/timeline/history/" + gameId);
+        // These events belong to today's game. The history route hides the client's record-create action.
+        return url("/timeline?gameId=" + gameId);
     }
 
     public String video(Long gameId, Long recordId, Long videoId, Long commentId) {
