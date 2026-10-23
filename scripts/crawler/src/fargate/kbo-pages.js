@@ -26,6 +26,9 @@ function clean(value) {
 }
 
 function selectedGameType($) {
+  const series = $("#ddlSeries").val();
+  if (series === "0,9,6") return "REGULAR";
+  if (series === "1") return "EXHIBITION";
   const labels = $("select option:selected").toArray().map((option) => clean($(option).text()).replace(/\s+/g, ""));
   const types = new Map([
     ["정규시즌", "REGULAR"], ["KBO정규시즌", "REGULAR"], ["시범경기", "EXHIBITION"],
@@ -34,6 +37,24 @@ function selectedGameType($) {
   ]);
   const matches = [...new Set(labels.map((label) => types.get(label)).filter(Boolean))];
   return matches.length === 1 ? matches[0] : "UNKNOWN";
+}
+
+function postseasonType(note, teams, fallback) {
+  const text = clean(note).replace(/\s+/g, "");
+  if (/준PO|준플레이오프/i.test(text)) return "SEMI_PLAYOFF";
+  if (/와일드카드|WC/i.test(text)) return "WILDCARD";
+  if (/한국시리즈|KS/i.test(text)) return "KOREAN_SERIES";
+  if (/플레이오프|PO/i.test(text)) return "PLAYOFF";
+  const placeholders = teams.join(" ").replace(/\s+/g, "");
+  if (/준PO승리팀|준플레이오프승리팀/i.test(placeholders)) return "PLAYOFF";
+  if (/WC승리팀|와일드카드승리팀/i.test(placeholders)) return "SEMI_PLAYOFF";
+  if (/PO승리팀|플레이오프승리팀/i.test(placeholders)) return "KOREAN_SERIES";
+  return fallback;
+}
+
+function isUnconfirmedTeam(value) {
+  return /^(?:(?:WC|준PO|PO|와일드카드|준플레이오프|플레이오프)(?:승리|승자)팀?|미정|TBD)$/i
+    .test(clean(value).replace(/\s+/g, ""));
 }
 
 function strictTeam(value, context) {
@@ -133,9 +154,12 @@ export function parseKboScheduleMonthPage(html, targetMonth, options = {}) {
   let currentDate = null;
   const games = [];
   const anomalies = [];
+  const deferredGames = [];
+  const offDays = [];
   const rows = table.find("tbody > tr").toArray();
   for (const [rowIndex, element] of rows.entries()) {
     const row = $(element);
+    if (row.children("td").length === 1 && /^(?:데이터가 존재하지 않습니다\.?|경기가 없습니다\.?|경기 일정이 없습니다\.?)$/.test(clean(row.text()))) continue;
     const dayCell = row.children("td.day").first();
     if (dayCell.length) {
       const dayMatch = clean(dayCell.text()).match(/^(\d{1,2})\.(\d{1,2})/);
@@ -150,6 +174,14 @@ export function parseKboScheduleMonthPage(html, targetMonth, options = {}) {
     const timeText = clean(row.children("td.time").first().text());
     const play = row.children("td.play").first();
     const teamTexts = play.children("span").toArray().map((cell) => clean($(cell).text()));
+    const columnOffset = dayCell.length === 1 ? 0 : 1;
+    const cells = row.children("td").toArray();
+    const stadium = clean($(cells[stadiumHeader - columnOffset]).text());
+    const note = clean($(cells[noteHeader - columnOffset]).text());
+    if (!timeText && teamTexts.length === 0 && /^(이동일|휴식일)$/.test(note)) {
+      offDays.push(currentDate);
+      continue;
+    }
     if (teamTexts.length !== 2 || !/^\d{1,2}:\d{2}$/.test(timeText)) {
       anomalies.push({
         type: "INVALID_SCHEDULE_ROW",
@@ -161,11 +193,14 @@ export function parseKboScheduleMonthPage(html, targetMonth, options = {}) {
     }
 
     try {
-      const hasDateCell = dayCell.length === 1;
-      const columnOffset = hasDateCell ? 0 : 1;
-      const cells = row.children("td").toArray();
-      const stadium = clean($(cells[stadiumHeader - columnOffset]).text());
-      const note = clean($(cells[noteHeader - columnOffset]).text());
+      const gameType = postseasonType(note, teamTexts, selectedGameType($));
+      if (teamTexts.some(isUnconfirmedTeam)) {
+        for (const team of teamTexts.filter(value => !isUnconfirmedTeam(value))) strictTeam(team, `schedule row ${rowIndex}`);
+        deferredGames.push({ date: currentDate, scheduledAt: `${currentDate}T${timeText}:00+09:00`,
+          awayTeamLabel: teamTexts[0], homeTeamLabel: teamTexts[1], stadium: stadium || null,
+          gameType, reason: "UNCONFIRMED_TEAMS" });
+        continue;
+      }
       const scoreValues = play.find("em span").toArray()
         .map((cell) => clean($(cell).text()))
         .filter((value) => /^\d+$/.test(value));
@@ -197,7 +232,7 @@ export function parseKboScheduleMonthPage(html, targetMonth, options = {}) {
         events: [],
         meta: { provenance: [{ provider: "kbo", page: "schedule", row: rowIndex }] },
       }, { source: "kbo" });
-      games.push(validateIdentity({ ...game, seasonYear: Number(year), gameType: selectedGameType($), gameSequence: null }, `schedule row ${rowIndex}`));
+      games.push(validateIdentity({ ...game, seasonYear: Number(year), gameType, gameSequence: null }, `schedule row ${rowIndex}`));
     } catch (error) {
       anomalies.push({
         type: "INVALID_SCHEDULE_ROW",
@@ -213,7 +248,7 @@ export function parseKboScheduleMonthPage(html, targetMonth, options = {}) {
   if (games.length > (options.maxGames ?? 200)) {
     throw new KboPageSchemaError("KBO monthly schedule game count exceeded configured safety maximum");
   }
-  return { games, anomalies, pageDate: pageMonth };
+  return { games, anomalies, deferredGames, offDays, pageDate: pageMonth };
 }
 
 export function parseKboSchedulePage(html, targetDate, options = {}) {
