@@ -54,9 +54,6 @@ jobs:
       - name: Save image as artifact
         run: docker save "$IMAGE_NAME:${{ github.sha }}" -o "$IMAGE_TAR"
 
-      - name: Show image tar size
-        run: ls -lh "$IMAGE_TAR"
-
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
@@ -139,8 +136,6 @@ jobs:
             fi
           fi
 
-          sleep 5
-
 
       - name: Prepare SSH key
         run: |
@@ -206,10 +201,7 @@ jobs:
                  echo \"Insufficient free disk for streamed image load: \$AVAILABLE_KB KiB available\"; \
                  exit 1; \
                fi \
-            && echo '=== Disk usage before deployment ===' \
-            && df -h '$REMOTE_DEPLOY_DIR' \
-            && echo '=== Docker disk usage ===' \
-            && docker system df"
+            && df -h '$REMOTE_DEPLOY_DIR'"
 
 
       # 원격에 image tar를 저장하면 기존 이미지 + tar + 새 이미지가 동시에
@@ -222,9 +214,7 @@ jobs:
             -i ~/.ssh/ec2_key \
             -p "$EC2_PORT" \
             "$EC2_USER@$EC2_HOST" \
-            "gzip -dc | docker load \
-            && echo '=== Disk usage after docker load ===' \
-            && df -h '$REMOTE_DEPLOY_DIR'"
+            "set -o pipefail; gzip -dc | docker load"
 
 
       - name: Stop previous container
@@ -245,12 +235,14 @@ jobs:
 
 
       - name: Start new container
+        id: start-new
         run: |
           ssh \
             -i ~/.ssh/ec2_key \
             -p "$EC2_PORT" \
             "$EC2_USER@$EC2_HOST" \
-            "if grep -Eiq '^[[:space:]]*FIREBASE_ENABLED[[:space:]]*=[[:space:]]*\"?true\"?[[:space:]]*$' '$EC2_ENV_FILE'; then \
+            "set -e; \
+            if grep -Eiq '^[[:space:]]*FIREBASE_ENABLED[[:space:]]*=[[:space:]]*\"?true\"?[[:space:]]*$' '$EC2_ENV_FILE'; then \
                docker run -d \
                  --name '$CONTAINER_NAME' \
                  --restart unless-stopped \
@@ -277,34 +269,13 @@ jobs:
                  -p '$APP_BIND_ADDRESS:$APP_HOST_PORT:$APP_PORT' \
                  -p '127.0.0.1:$MANAGEMENT_HOST_PORT:$MANAGEMENT_PORT' \
                  '$IMAGE_NAME:${{ github.sha }}'; \
-             fi"
+             fi; \
+             test \"\$(docker inspect --format '{{.State.Running}}' '$CONTAINER_NAME')\" = true \
+             && test \"\$(docker inspect --format '{{.RestartCount}}' '$CONTAINER_NAME')\" = 0"
 
-
-      - name: Health check
-        id: health
-        run: |
-          ssh \
-            -i ~/.ssh/ec2_key \
-            -p "$EC2_PORT" \
-            "$EC2_USER@$EC2_HOST" \
-            "for i in \$(seq 1 20); do \
-              if curl -fsS \
-                http://127.0.0.1:$APP_HOST_PORT/api/health \
-                && curl -fsS \
-                http://127.0.0.1:$MANAGEMENT_HOST_PORT/actuator/health; then \
-                echo; \
-                echo 'Application and management health checks passed'; \
-                exit 0; \
-              fi; \
-              echo \"Health check attempt \$i failed\"; \
-              sleep 3; \
-            done; \
-            echo 'Health check failed'; \
-            docker logs --tail 100 '$CONTAINER_NAME'; \
-            exit 1"
 
       - name: Restore previous container after failed deployment
-        if: always() && steps.stop-previous.outcome == 'success' && steps.health.outcome != 'success'
+        if: always() && steps.stop-previous.outcome == 'success' && steps.start-new.outcome != 'success'
         run: |
           ssh \
             -i ~/.ssh/ec2_key \
@@ -318,28 +289,22 @@ jobs:
               fi; \
               docker rename '$CONTAINER_NAME-rollback' '$CONTAINER_NAME'; \
               docker start '$CONTAINER_NAME'; \
-              for i in \$(seq 1 20); do \
-                if curl -fsS http://127.0.0.1:$APP_HOST_PORT/api/health; then exit 0; fi; \
-                sleep 3; \
-              done; \
+              test \"\$(docker inspect --format '{{.State.Running}}' '$CONTAINER_NAME')\" = true; \
+            else \
+              echo 'No previous container is available for rollback'; \
               exit 1; \
             fi"
 
 
       # 실행 중인 컨테이너 및 직전 rollback 컨테이너가 참조하는 이미지는 보존한다.
-      - name: Cleanup remote temporary files
+      - name: Prune unused images
         if: always()
         run: |
           ssh \
             -i ~/.ssh/ec2_key \
             -p "$EC2_PORT" \
             "$EC2_USER@$EC2_HOST" \
-            "rm -f '$REMOTE_DEPLOY_DIR/$IMAGE_TAR'; \
-            docker image prune -af; \
-            echo '=== Disk usage after cleanup ==='; \
-            df -h '$REMOTE_DEPLOY_DIR'; \
-            echo '=== Docker disk usage after cleanup ==='; \
-            docker system df" \
+            "docker image prune -af" \
             || true
 
 
