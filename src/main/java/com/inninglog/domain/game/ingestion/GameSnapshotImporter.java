@@ -5,6 +5,8 @@ import static com.inninglog.domain.game.repository.GameRepository.timestamp;
 import com.inninglog.domain.game.model.Game;
 import com.inninglog.domain.game.model.GameStatus;
 import com.inninglog.domain.game.model.GameType;
+import com.inninglog.domain.game.model.GameStateSnapshot;
+import com.inninglog.domain.game.notification.GameNotificationService;
 import com.inninglog.domain.game.repository.GameRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -29,11 +31,13 @@ public class GameSnapshotImporter {
     private final ObjectMapper mapper;
     private final Clock clock;
     private final boolean allowFixtures;
+    private final GameNotificationService notifications;
     private static final Map<String, String> TEAM_CODES = Map.of("KIA", "HT", "DOO", "OB", "SSG", "SK", "WOE", "WO");
 
-    public GameSnapshotImporter(JdbcTemplate jdbc, GameRepository games, ObjectMapper mapper, Clock clock,
+    public GameSnapshotImporter(JdbcTemplate jdbc, GameRepository games, ObjectMapper mapper, Clock clock, GameNotificationService notifications,
             @Value("${app.games.allow-fixtures:false}") boolean allowFixtures) {
         this.jdbc = jdbc; this.games = games; this.mapper = mapper; this.clock = clock; this.allowFixtures = allowFixtures;
+        this.notifications = notifications;
     }
 
     @Transactional(timeout = 30)
@@ -79,7 +83,7 @@ public class GameSnapshotImporter {
             long samePairCount = incoming.stream().filter(other -> other.pairKey().equals(game.pairKey())).count();
             long gameId = upsert(game, samePairCount);
             if (!matched.add(gameId)) fail("MULTIPLE_ROWS_MATCH_SAME_GAME");
-            recordEffectiveState(gameId);
+            recordEffectiveState(gameId, mode);
         }
         String scopeKey = (monthly ? "MONTH:" + month : "DAY:" + date);
         var previous = jdbc.query("select observed_at from game_sync_scopes where scope_key = ?",
@@ -189,20 +193,24 @@ public class GameSnapshotImporter {
      * The import lock serializes this compare-and-append operation across instances.
      * Read back the effective row so stale or lower-priority input never becomes history.
      */
-    private void recordEffectiveState(long gameId) {
+    private void recordEffectiveState(long gameId, String mode) {
         Game current = games.find(gameId).orElseThrow();
         var previous = jdbc.query("""
-                select status,current_inning,current_half,home_score,away_score
+                select id,status,current_inning,current_half,home_score,away_score,observed_at,result_source
                   from game_state_snapshots where game_id = ?
                  order by observed_at desc, id desc limit 1
-                """, (rs, index) -> new EffectiveState(
+                """, (rs, index) -> new GameStateSnapshot(rs.getLong("id"), gameId,
                         GameStatus.valueOf(rs.getString("status")),
                         rs.getObject("current_inning", Integer.class), rs.getString("current_half"),
-                        rs.getObject("home_score", Integer.class), rs.getObject("away_score", Integer.class)), gameId)
+                        rs.getObject("home_score", Integer.class), rs.getObject("away_score", Integer.class),
+                        GameRepository.instant(rs, "observed_at"), rs.getString("result_source")), gameId)
                 .stream().findFirst();
         EffectiveState next = new EffectiveState(current.status(), current.currentInning(), current.currentHalf(),
                 current.homeScore(), current.awayScore());
-        if (previous.isPresent() && previous.get().equals(next)) return;
+        if (previous.isPresent()) {
+            var old = previous.get();
+            if (new EffectiveState(old.status(), old.currentInning(), old.currentHalf(), old.homeScore(), old.awayScore()).equals(next)) return;
+        }
         jdbc.update("""
                 insert into game_state_snapshots(
                     game_id,status,current_inning,current_half,home_score,away_score,
@@ -211,6 +219,8 @@ public class GameSnapshotImporter {
                 """, current.id(), current.status().name(), current.currentInning(), current.currentHalf(),
                 current.homeScore(), current.awayScore(), timestamp(current.resultObservedAt()),
                 current.resultSource(), timestamp(clock.instant()));
+        long stateId = jdbc.queryForObject("select max(id) from game_state_snapshots where game_id = ?", Long.class, gameId);
+        notifications.onEffectiveState(current, previous.orElse(null), stateId, mode);
     }
 
     private void update(Game old, Incoming value) {
