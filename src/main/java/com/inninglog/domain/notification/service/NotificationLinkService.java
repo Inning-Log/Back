@@ -29,8 +29,15 @@ public class NotificationLinkService {
     }
 
     public String video(Long gameId, Long recordId, Long videoId, Long commentId) {
-        // Comment notifications are delivered to the owner; the numeric user route is friend mode in the client.
+        // Preserve the owner's history route; the numeric user route is friend mode in the client.
         return url("/timeline/history/" + gameId + "?recordId=" + recordId
+                + "&videoId=" + videoId + "&commentId=" + commentId);
+    }
+
+    public String video(Long gameId, Long recordId, Long videoId, Long commentId,
+                        long ownerUserId, long recipientUserId) {
+        if (ownerUserId == recipientUserId) return video(gameId, recordId, videoId, commentId);
+        return url("/timeline/" + ownerUserId + "?gameId=" + gameId + "&recordId=" + recordId
                 + "&videoId=" + videoId + "&commentId=" + commentId);
     }
 

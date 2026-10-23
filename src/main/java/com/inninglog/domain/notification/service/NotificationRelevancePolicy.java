@@ -64,12 +64,21 @@ public class NotificationRelevancePolicy {
                     join inning_record_videos v on v.id = c.video_id and v.deleted_at is null and v.status = 'READY'
                     join inning_records r on r.id = v.inning_record_id and r.deleted_at is null
                     join user_game_logs l on l.id = r.user_game_log_id and l.deleted_at is null
-                    join app_users a on a.id = c.author_user_id and a.deleted_at is null
-                    where c.id = ? and c.deleted_at is null and l.user_id = ?
-                      and exists (select 1 from friendships f where f.status = 'ACCEPTED'
+                    join app_users o on o.id = l.user_id and o.deleted_at is null and o.onboarding_completed = true
+                    join app_users a on a.id = c.author_user_id and a.deleted_at is null and a.onboarding_completed = true
+                    left join video_comments p on p.id = c.parent_comment_id and p.video_id = c.video_id
+                    join app_users recipient on recipient.id = ? and recipient.deleted_at is null
+                      and recipient.onboarding_completed = true
+                    where c.id = ? and c.deleted_at is null and a.id <> recipient.id
+                      and ((c.parent_comment_id is null and l.user_id = recipient.id)
+                        or (p.deleted_at is null and p.parent_comment_id is null and p.author_user_id = recipient.id))
+                      and (a.id = l.user_id or exists (select 1 from friendships f where f.status = 'ACCEPTED'
                         and ((f.requester_id = a.id and f.receiver_id = l.user_id)
-                          or (f.receiver_id = a.id and f.requester_id = l.user_id)))
-                    """, numeric(data, "commentId"), outbox.getUserId())) return "COMMENT_UNAVAILABLE";
+                          or (f.receiver_id = a.id and f.requester_id = l.user_id))))
+                      and (recipient.id = l.user_id or exists (select 1 from friendships f where f.status = 'ACCEPTED'
+                        and ((f.requester_id = recipient.id and f.receiver_id = l.user_id)
+                          or (f.receiver_id = recipient.id and f.requester_id = l.user_id))))
+                    """, outbox.getUserId(), numeric(data, "commentId"))) return "COMMENT_UNAVAILABLE";
         }
         return null;
     }

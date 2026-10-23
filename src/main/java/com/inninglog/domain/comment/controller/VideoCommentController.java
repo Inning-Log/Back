@@ -23,7 +23,7 @@ public class VideoCommentController {
     public VideoCommentController(VideoCommentService service) { this.service = service; }
 
     @GetMapping("/videos/{videoId}/comments")
-    @Operation(summary = "영상 댓글 목록", description = "오래된 댓글부터 반환합니다. size 기본 20, 최대 100. nextCursor는 같은 영상에서만 사용합니다.")
+    @Operation(summary = "영상 댓글 목록", description = "댓글과 답글을 오래된 순으로 함께 반환합니다. parentCommentId가 null이면 원댓글입니다. totalCount는 답글을 포함합니다. size 기본 20, 최대 100. nextCursor는 같은 영상에서만 사용합니다.")
     public CommentPageResponse list(JwtAuthenticationToken auth, @PathVariable @Positive long videoId,
                                     @RequestParam(required = false) String cursor,
                                     @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
@@ -31,7 +31,7 @@ public class VideoCommentController {
     }
 
     @PostMapping("/videos/{videoId}/comments")
-    @Operation(summary = "영상 댓글 작성", description = "clientCommentId는 요청마다 새 UUID. 같은 내용 재전송은 200, 최초 생성은 201입니다.")
+    @Operation(summary = "영상 댓글 작성", description = "parentCommentId 생략 또는 null이면 원댓글, 지정하면 같은 영상의 원댓글에 답글을 작성합니다. 답글의 답글은 허용하지 않습니다. clientCommentId는 요청마다 새 UUID. 같은 내용과 부모 재전송은 200, 최초 생성은 201입니다.")
     public ResponseEntity<CommentResponse> create(JwtAuthenticationToken auth, @PathVariable @Positive long videoId,
                                                  @Valid @RequestBody CommentCreateRequest request) {
         var result = service.create(auth.getName(), videoId, request);
@@ -53,7 +53,7 @@ public class VideoCommentController {
     }
 
     @DeleteMapping("/video-comments/{commentId}")
-    @Operation(summary = "내 댓글 삭제", description = "작성자만 삭제합니다. 같은 댓글 반복 삭제는 204입니다. 현재 영상 접근 권한이 필요합니다.")
+    @Operation(summary = "내 댓글 삭제", description = "작성자만 삭제합니다. 원댓글 삭제 시 답글도 함께 삭제합니다. 같은 댓글 반복 삭제는 204입니다. 현재 영상 접근 권한이 필요합니다.")
     public ResponseEntity<Void> delete(JwtAuthenticationToken auth, @PathVariable @Positive long commentId) {
         service.delete(auth.getName(), commentId);
         return ResponseEntity.noContent().build();
