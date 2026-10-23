@@ -51,6 +51,14 @@ public record PushNotification(
         return new PushNotification(type, title, body, mergedData, expiresAt);
     }
 
+    /** The web client displays notifications after audience and dedup checks. */
+    public Map<String, String> webData() {
+        Map<String, String> result = new LinkedHashMap<>(data);
+        result.put("title", title);
+        result.put("body", body == null ? "" : body);
+        return Map.copyOf(result);
+    }
+
     private static void validateDataEntry(String key, String value) {
         if (key == null || key.isBlank()) {
             throw new InvalidPushPayloadException("FCM data keys must not be blank.");

@@ -6,10 +6,8 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.MulticastMessage;
-import com.google.firebase.messaging.Notification;
 import com.google.firebase.messaging.SendResponse;
 import com.google.firebase.messaging.WebpushConfig;
-import com.google.firebase.messaging.WebpushFcmOptions;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -52,26 +50,17 @@ public class FirebasePushGateway implements PushGateway {
 
         payloadValidator.validate(notification);
 
-        Notification.Builder notificationBuilder = Notification.builder()
-                .setTitle(notification.title());
-        if (notification.body() != null) {
-            notificationBuilder.setBody(notification.body());
-        }
-
+        // A notification payload is auto-displayed before the client's audience check.
+        // The deployed web client already supports data.title/body and renders once itself.
         MulticastMessage.Builder messageBuilder = MulticastMessage.builder()
-                .setNotification(notificationBuilder.build())
-                .putAllData(notification.data())
+                .putAllData(notification.webData())
                 .addAllFids(targets.stream().map(PushTarget::installationId).toList());
-        String link = notification.data().get("link");
         WebpushConfig.Builder webpush = WebpushConfig.builder();
         if (notification.expiresAt() != null) {
             long ttl = Math.max(0, java.time.Duration.between(java.time.Instant.now(), notification.expiresAt()).toSeconds());
             webpush.putHeader("TTL", Long.toString(Math.min(ttl, 604800)));
         }
-        if (link != null) {
-            webpush.setFcmOptions(WebpushFcmOptions.withLink(link));
-        }
-        if (link != null || notification.expiresAt() != null) messageBuilder.setWebpushConfig(webpush.build());
+        if (notification.expiresAt() != null) messageBuilder.setWebpushConfig(webpush.build());
         MulticastMessage message = messageBuilder.build();
 
         try {
