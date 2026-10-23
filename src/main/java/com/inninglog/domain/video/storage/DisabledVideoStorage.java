@@ -28,7 +28,8 @@ public class DisabledVideoStorage implements VideoStorage {
 
     @Override
     public void delete(String key) {
-        // Nothing was ever stored while storage is disabled.
+        // Storage may have been disabled after uploads existed. Never acknowledge a deletion we did not perform.
+        throw disabled();
     }
 
     private static GameException disabled() {

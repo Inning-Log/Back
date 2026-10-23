@@ -8,6 +8,8 @@ import com.inninglog.domain.friendship.entity.Friendship;
 import com.inninglog.domain.friendship.repository.FriendshipRepository;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.video.storage.VideoStorage;
+import com.inninglog.domain.video.repository.VideoRepository;
+import com.inninglog.domain.video.service.VideoCleanupService;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,6 +40,8 @@ class VideoApiIntegrationTest extends GameIntegrationSupport {
 
     @Autowired FakeVideoStorage storage;
     @Autowired FriendshipRepository friendships;
+    @Autowired VideoRepository videos;
+    @Autowired VideoCleanupService cleanup;
 
     @TestConfiguration
     static class StorageConfig {
@@ -48,6 +52,8 @@ class VideoApiIntegrationTest extends GameIntegrationSupport {
     static class FakeVideoStorage implements VideoStorage {
         final Map<String, StoredObject> objects = new ConcurrentHashMap<>();
         final List<String> presigned = Collections.synchronizedList(new ArrayList<>());
+        final Set<String> failedDeletes = ConcurrentHashMap.newKeySet();
+        final List<String> deleted = Collections.synchronizedList(new ArrayList<>());
 
         @Override
         public PresignedUrl presignUpload(String key, String contentType, long contentLength, Duration ttl) {
@@ -65,7 +71,11 @@ class VideoApiIntegrationTest extends GameIntegrationSupport {
         public Optional<StoredObject> head(String key) { return Optional.ofNullable(objects.get(key)); }
 
         @Override
-        public void delete(String key) { objects.remove(key); }
+        public void delete(String key) {
+            deleted.add(key);
+            if (failedDeletes.contains(key)) throw new IllegalStateException("Simulated storage outage");
+            objects.remove(key);
+        }
 
         void store(String key, long size, String type) { objects.put(key, new StoredObject(size, type)); }
 
@@ -190,10 +200,153 @@ class VideoApiIntegrationTest extends GameIntegrationSupport {
                 Long.class, recordId)).isZero();
     }
 
+    @Test
+    void failedDeletionIsDurableAndBacksOffUntilStorageRecovers() throws Exception {
+        var owner = user();
+        long recordId = record(owner);
+        long id = uploadUrl(owner, recordId, "video/mp4", 10).path("videoId").longValue();
+        String key = storage.lastKey();
+        storage.store(key, 10, "video/mp4");
+        expire(id);
+        storage.failedDeletes.add(key);
+        mvc.perform(delete(path(recordId)).with(as(owner))).andExpect(status().isNoContent());
+        assertThat(videos.cleanupRow(id).orElseThrow().video().deletedAt()).isNotNull();
+        assertThat(cleanup.candidates()).contains(id);
+        cleanup.cleanup(id);
+        var failed = videos.cleanupRow(id).orElseThrow();
+        assertThat(failed.attempts()).isEqualTo(1);
+        assertThat(failed.retryAt()).isEqualTo(NOW.plusSeconds(300));
+        assertThat(failed.storageDeletedAt()).isNull();
+        assertThat(cleanup.candidates()).doesNotContain(id);
+        storage.failedDeletes.remove(key);
+        sqlUpdate("update inning_record_videos set cleanup_retry_at = ? where id = ?", NOW, id);
+        cleanup.cleanup(id);
+        assertThat(storage.objects).doesNotContainKey(key);
+        assertThat(videos.cleanupRow(id).orElseThrow().storageDeletedAt()).isEqualTo(NOW);
+        int calls = storage.deleted.size();
+        cleanup.cleanup(id);
+        assertThat(storage.deleted).hasSize(calls);
+    }
+
+    @Test
+    void cleanupProtectsUploadsInGraceAndReadyVideosEvenWhenGameLogIsHidden() throws Exception {
+        var owner = user();
+        long recordId = record(owner);
+        long id = uploadUrl(owner, recordId, "video/webm", 10).path("videoId").longValue();
+        String key = storage.lastKey();
+        storage.store(key, 10, "video/webm; codecs=vp8");
+        sqlUpdate("update inning_record_videos set upload_expires_at = ? where id = ?", NOW.minusSeconds(60), id);
+        assertThat(cleanup.candidates()).doesNotContain(id);
+        cleanup.cleanup(id);
+        mvc.perform(post(path(recordId) + "/complete").with(as(owner))).andExpect(status().isOk());
+        expire(id);
+        sqlUpdate("update user_game_logs set deleted_at = ? where user_id = ?", NOW, owner.getId());
+        cleanup.cleanup(id);
+        assertThat(cleanup.candidates()).doesNotContain(id);
+        assertThat(videos.findActive(recordId)).isPresent();
+        assertThat(storage.objects).containsKey(key);
+        sqlUpdate("update user_game_logs set deleted_at = null where user_id = ?", owner.getId());
+        mvc.perform(get(path(recordId)).with(as(owner))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("READY"));
+    }
+
+    @Test
+    void abandonedUploadsExpireButFreshReplacementsSurvive() throws Exception {
+        var owner = user();
+        long recordId = record(owner);
+        long id = uploadUrl(owner, recordId, "video/mp4", 10).path("videoId").longValue();
+        String oldKey = storage.lastKey();
+        storage.store(oldKey, 10, "video/mp4");
+        expire(id);
+        assertThat(cleanup.candidates()).contains(id);
+        long replacement = uploadUrl(owner, recordId, "video/mp4", 10).path("videoId").longValue();
+        String newKey = storage.lastKey();
+        storage.store(newKey, 10, "video/mp4");
+        cleanup.cleanup(id);
+        cleanup.cleanup(replacement);
+        assertThat(storage.objects).doesNotContainKey(oldKey).containsKey(newKey);
+        assertThat(videos.findActive(recordId).orElseThrow().id()).isEqualTo(replacement);
+        expire(replacement);
+        cleanup.cleanup(replacement);
+        assertThat(videos.findActive(recordId)).isEmpty();
+        assertThat(storage.objects).doesNotContainKey(newKey);
+    }
+
+    @Test
+    void expiredCompletionRejectsAndCommitsCleanup() throws Exception {
+        var owner = user();
+        long recordId = record(owner);
+        long id = uploadUrl(owner, recordId, "video/mp4", 10).path("videoId").longValue();
+        String key = storage.lastKey();
+        storage.store(key, 10, "video/mp4");
+        expire(id);
+        mvc.perform(post(path(recordId) + "/complete").with(as(owner)))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("VIDEO_UPLOAD_EXPIRED"));
+        assertThat(videos.findActive(recordId)).isEmpty();
+        assertThat(storage.objects).doesNotContainKey(key);
+    }
+
+    @Test
+    void deletedUploadIsSweptAgainAfterItsPutUrlCanNoLongerRecreateIt() throws Exception {
+        var owner = user();
+        long recordId = record(owner);
+        long id = uploadUrl(owner, recordId, "video/mp4", 10).path("videoId").longValue();
+        String key = storage.lastKey();
+        mvc.perform(delete(path(recordId)).with(as(owner))).andExpect(status().isNoContent());
+        cleanup.cleanup(id);
+        var early = videos.cleanupRow(id).orElseThrow();
+        assertThat(early.storageDeletedAt()).isNull();
+        assertThat(early.retryAt()).isEqualTo(early.video().uploadExpiresAt().plusSeconds(3600));
+        // A client started a PUT before cancellation and it finishes after the first DELETE.
+        storage.store(key, 10, "video/mp4");
+        expire(id);
+        sqlUpdate("update inning_record_videos set cleanup_retry_at = ? where id = ?", NOW, id);
+        cleanup.cleanup(id);
+        assertThat(storage.objects).doesNotContainKey(key);
+        assertThat(videos.cleanupRow(id).orElseThrow().storageDeletedAt()).isNotNull();
+    }
+
+    @Test
+    void workerRechecksAStaleCandidateAfterCompletionAndProtectsLegacyUploads() throws Exception {
+        var owner = user();
+        long recordId = record(owner);
+        long id = uploadUrl(owner, recordId, "video/mp4", 10).path("videoId").longValue();
+        String key = storage.lastKey();
+        storage.store(key, 10, "video/mp4");
+        sqlUpdate("update inning_record_videos set upload_expires_at = null where id = ?", id);
+        assertThat(videos.findActive(recordId).orElseThrow().uploadExpiresAt()).isEqualTo(NOW.plus(Duration.ofDays(7)));
+        assertThat(cleanup.candidates()).doesNotContain(id);
+        expire(id);
+        assertThat(cleanup.candidates()).contains(id);
+        // Simulate completion committed while a previously selected candidate waits for locks.
+        videos.markReady(id, NOW);
+        cleanup.cleanup(id);
+        assertThat(storage.objects).containsKey(key);
+        assertThat(videos.findActive(recordId)).isPresent();
+    }
+
+    @Test
+    void contentTypeMustMatchExactlyInsteadOfOnlySharingAPrefix() throws Exception {
+        var owner = user();
+        long recordId = record(owner);
+        uploadUrl(owner, recordId, "video/mp4", 10);
+        String key = storage.lastKey();
+        storage.store(key, 10, "video/mp4-invalid");
+        mvc.perform(post(path(recordId) + "/complete").with(as(owner)))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("VIDEO_UPLOAD_MISMATCH"));
+        assertThat(videos.findActive(recordId)).isEmpty();
+    }
+
+    private void expire(long id) {
+        sqlUpdate("update inning_record_videos set upload_expires_at = ? where id = ?", NOW.minusSeconds(3600), id);
+    }
+
     private long record(User user) throws Exception {
         var game = game(TODAY, "FINISHED", 5, 3);
-        // A distinct opponent per record keeps the committed schedule rows unique.
-        game.put("awayTeam", Map.of("code", OPPONENTS.get(SEQUENCE.getAndIncrement() % OPPONENTS.size())));
+        // Reuse identified games across users instead of inventing duplicate schedules.
+        String opponent = OPPONENTS.get(SEQUENCE.getAndIncrement() % OPPONENTS.size());
+        game.put("awayTeam", Map.of("code", opponent));
+        game.put("externalId", Map.of("kbo", "video-api-" + opponent));
         long gameId = ingest(game);
         viewing(user, gameId, team("LG"), "STADIUM");
         var body = Map.of("gameId", gameId, "clientRecordId", UUID.randomUUID().toString(), "inning", 1,
