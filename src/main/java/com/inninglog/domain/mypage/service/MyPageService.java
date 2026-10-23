@@ -4,6 +4,7 @@ import com.inninglog.domain.user.exception.AccountDeletedException;
 import com.inninglog.domain.user.exception.DuplicateUsernameException;
 import com.inninglog.domain.user.exception.UserNotFoundException;
 import com.inninglog.domain.user.service.UsernamePolicy;
+import com.inninglog.domain.mypage.image.ProfileImageService;
 import com.inninglog.domain.mypage.dto.MyPageResponse;
 import com.inninglog.domain.mypage.dto.UsernameAvailabilityResponse;
 import com.inninglog.domain.team.entity.KboTeam;
@@ -18,10 +19,12 @@ public class MyPageService {
 
     private final UserRepository userRepository;
     private final TeamQueryService teamQueryService;
+    private final ProfileImageService profileImages;
 
-    public MyPageService(UserRepository userRepository, TeamQueryService teamQueryService) {
+    public MyPageService(UserRepository userRepository, TeamQueryService teamQueryService, ProfileImageService profileImages) {
         this.userRepository = userRepository;
         this.teamQueryService = teamQueryService;
+        this.profileImages = profileImages;
     }
 
     @Transactional(readOnly = true)
@@ -71,7 +74,7 @@ public class MyPageService {
                 ? null
                 : profileImageUrl.trim();
 
-        user.updateProfileImage(normalizedUrl);
+        profileImages.apply(user, normalizedUrl);
         return MyPageResponse.from(user);
     }
 

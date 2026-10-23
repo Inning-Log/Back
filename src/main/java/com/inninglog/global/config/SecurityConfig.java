@@ -62,6 +62,7 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/profile-images/*").permitAll()
                         .requestMatchers(
                                 "/api/health",
                                 "/api/auth/dev-token",

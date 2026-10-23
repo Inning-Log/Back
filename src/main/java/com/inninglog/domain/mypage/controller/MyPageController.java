@@ -7,6 +7,12 @@ import com.inninglog.domain.mypage.dto.ProfileImageUpdateRequest;
 import com.inninglog.domain.mypage.dto.ProfileUpdateRequest;
 import com.inninglog.domain.mypage.dto.UsernameAvailabilityResponse;
 import com.inninglog.domain.mypage.service.MyPageService;
+import com.inninglog.domain.mypage.image.ProfileImageService;
+import com.inninglog.domain.mypage.dto.ProfileImageUploadRequest;
+import com.inninglog.domain.mypage.dto.ProfileImageUploadResponse;
+import java.util.UUID;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -35,9 +41,28 @@ import org.springframework.web.bind.annotation.RestController;
 public class MyPageController {
 
     private final MyPageService myPageService;
+    private final ProfileImageService profileImages;
 
-    public MyPageController(MyPageService myPageService) {
+    public MyPageController(MyPageService myPageService, ProfileImageService profileImages) {
         this.myPageService = myPageService;
+        this.profileImages = profileImages;
+    }
+
+    @Operation(summary = "프로필 사진 S3 업로드 URL 발급",
+            description = "JPEG/PNG 기본 최대 10MB. 반환된 URL에 headers와 파일 바이트를 PUT한 뒤 완료 API를 호출합니다. "
+                    + "S3 요청에는 서비스 JWT를 보내지 않습니다. 새 요청은 이전 미완료 업로드를 대체합니다.")
+    @PostMapping("/profile-image/upload-url")
+    public ProfileImageUploadResponse requestImageUpload(JwtAuthenticationToken authentication,
+            @Valid @RequestBody ProfileImageUploadRequest request) {
+        return profileImages.requestUpload(authentication.getName(), request);
+    }
+
+    @Operation(summary = "프로필 사진 업로드 검증 및 적용",
+            description = "실제 이미지 형식·크기·해상도를 검사하고 최대 1024px PNG로 변환한 뒤 프로필에 반영합니다. "
+                    + "응답 profileImageUrl은 만료되지 않는 /api 경로이며 img 태그에서 사용할 수 있습니다.")
+    @PostMapping("/profile-image/{uploadId}/complete")
+    public MyPageResponse completeImageUpload(JwtAuthenticationToken authentication, @PathVariable UUID uploadId) {
+        return profileImages.complete(authentication.getName(), uploadId);
     }
 
     @Operation(
@@ -155,7 +180,8 @@ public class MyPageController {
 
     @Operation(
             summary = "프로필 이미지 URL 변경 또는 초기화",
-            description = "프로필 이미지 URL을 저장합니다. null 또는 빈 문자열을 보내면 사용자 지정 이미지를 초기화합니다."
+            description = "기존 외부 이미지 URL 저장 계약을 유지합니다. 업로드 URL 발급 응답의 profileImageUrl을 보내면 "
+                    + "본인 업로드 검증 후 적용합니다. null 또는 빈 문자열은 사용자 지정 이미지를 초기화합니다."
     )
     @ApiResponses({
             @ApiResponse(

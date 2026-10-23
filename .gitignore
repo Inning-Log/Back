@@ -36,6 +36,11 @@ out/
 ### VS Code ###
 .vscode/
 
+# Local runtime values are loaded explicitly by Docker, the shell, or the IDE.
+.env
+.env.*
+!.env.example
+
 # Firebase Admin credentials must stay outside the repository.
 *firebase-adminsdk*.json
 *adminsdk*.json
