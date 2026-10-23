@@ -69,8 +69,8 @@ public class VideoService {
         // An unfinished upload is replaced by the new attempt.
         if (existing != null) discard(existing);
         String key = objectKey(user.getId(), record.id(), contentType);
-        long id = videos.insertPending(record.id(), key, contentType, request.contentLength(), clock.instant());
         var upload = storage.presignUpload(key, contentType, request.contentLength(), properties.uploadUrlTtl());
+        long id = videos.insertPending(record.id(), key, contentType, request.contentLength(), clock.instant(), upload.expiresAt());
         return new VideoUploadResponse(id, record.id(), upload.url(), upload.method(), upload.headers(), upload.expiresAt());
     }
 
@@ -82,10 +82,14 @@ public class VideoService {
         videos.lockRecord(record.id());
         var video = videos.findActive(record.id()).orElseThrow(() -> GameException.notFound("VIDEO_NOT_FOUND"));
         if (video.status() == VideoStatus.PENDING) {
+            if (!clock.instant().isBefore(video.uploadExpiresAt().plus(VideoCleanupService.COMPLETION_GRACE))) {
+                discard(video);
+                throw GameException.conflict("VIDEO_UPLOAD_EXPIRED", "업로드 완료 기한이 지났습니다. 새 업로드 URL을 발급받아 주세요.");
+            }
             var stored = storage.head(video.objectKey()).orElseThrow(() ->
                     GameException.conflict("VIDEO_NOT_UPLOADED", "S3에 업로드된 파일을 찾을 수 없습니다. 업로드 후 다시 시도해 주세요."));
-            String storedType = stored.contentType() == null ? "" : stored.contentType().toLowerCase(Locale.ROOT);
-            if (stored.sizeBytes() != video.sizeBytes() || !storedType.startsWith(video.contentType())) {
+            String storedType = stored.contentType() == null ? "" : stored.contentType().split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+            if (stored.sizeBytes() != video.sizeBytes() || !storedType.equals(video.contentType())) {
                 discard(video);
                 throw GameException.conflict("VIDEO_UPLOAD_MISMATCH", "업로드한 파일의 크기나 형식이 요청과 다릅니다. 다시 업로드해 주세요.");
             }
@@ -134,8 +138,8 @@ public class VideoService {
             try {
                 storage.delete(video.objectKey());
             } catch (RuntimeException error) {
-                // The row is already gone, so the object is unreachable; an S3 lifecycle rule can sweep leftovers.
-                log.warn("Failed to delete video object {}", video.objectKey(), error);
+                // The deleted row durably queues a retry, including a final sweep after the PUT deadline.
+                log.warn("Video deletion queued for retry: {}", video.id());
             }
         });
     }

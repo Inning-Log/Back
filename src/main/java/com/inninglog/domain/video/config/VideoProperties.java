@@ -18,6 +18,9 @@ public record VideoProperties(
         keyPrefix = keyPrefix.replaceAll("^/+|/+$", "");
         if (uploadUrlTtl == null) uploadUrlTtl = Duration.ofMinutes(10);
         if (downloadUrlTtl == null) downloadUrlTtl = Duration.ofMinutes(10);
+        if (uploadUrlTtl.isNegative() || uploadUrlTtl.isZero() || uploadUrlTtl.compareTo(Duration.ofDays(7)) > 0
+                || downloadUrlTtl.isNegative() || downloadUrlTtl.isZero() || downloadUrlTtl.compareTo(Duration.ofDays(7)) > 0)
+            throw new IllegalArgumentException("Video URL lifetimes must be positive and at most 7 days.");
         if (maxSize == null) maxSize = DataSize.ofMegabytes(500);
         if (allowedContentTypes == null || allowedContentTypes.isEmpty())
             allowedContentTypes = List.of("video/mp4", "video/quicktime", "video/webm");
