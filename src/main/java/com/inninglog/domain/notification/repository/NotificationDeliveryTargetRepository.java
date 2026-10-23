@@ -14,11 +14,11 @@ import org.springframework.data.repository.query.Param;
 
 public interface NotificationDeliveryTargetRepository extends JpaRepository<NotificationDeliveryTarget, Long> {
 
+    // Keep locking queries on targets only; fetch joins can also lock outboxes on some databases.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select target
               from NotificationDeliveryTarget target
-              join fetch target.outbox outbox
              where target.status in :statuses
                and target.nextAttemptAt <= :now
              order by target.nextAttemptAt, target.id
@@ -33,8 +33,7 @@ public interface NotificationDeliveryTargetRepository extends JpaRepository<Noti
     @Query("""
             select target
               from NotificationDeliveryTarget target
-              join fetch target.outbox outbox
-             where outbox.id = :outboxId
+             where target.outbox.id = :outboxId
                and target.status in :statuses
                and target.nextAttemptAt <= :now
              order by target.id
@@ -50,7 +49,6 @@ public interface NotificationDeliveryTargetRepository extends JpaRepository<Noti
     @Query("""
             select target
               from NotificationDeliveryTarget target
-              join fetch target.outbox outbox
              where target.id in :targetIds
             """)
     List<NotificationDeliveryTarget> findAllByIdInForUpdate(@Param("targetIds") Collection<Long> targetIds);
