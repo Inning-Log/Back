@@ -150,6 +150,8 @@ public class GameSnapshotImporter {
             var sequence = candidates.stream().filter(g -> value.sequence() != null && value.sequence().equals(g.gameSequence())).toList();
             if (sequence.size() == 1) existing = sequence.getFirst();
             else if (exact.size() == 1) existing = exact.getFirst();
+            else if (candidates.size() == 1 && samePairCount == 1
+                    && confirmsSingleScheduledGame(candidates.getFirst(), value)) existing = candidates.getFirst();
             else if (!candidates.isEmpty()) {
                 // A different, explicit time in a multi-game snapshot can establish a second game.
                 boolean distinctTime = samePairCount > 1 && value.scheduledAt() != null
@@ -169,6 +171,17 @@ public class GameSnapshotImporter {
             jdbc.update("insert into game_external_ids(game_id,provider,external_id,created_at) values (?,'KBO',?,?)", id, value.externalId(), timestamp(clock.instant()));
         }
         return new UpsertResult(id, existing);
+    }
+
+    private static boolean confirmsSingleScheduledGame(Game provisional, Incoming incoming) {
+        // KBO suffix 0 identifies an ordinary single game. Only attach a newly published
+        // canonical ID to one scheduled, unnumbered candidate; never guess a doubleheader.
+        if (provisional.status() != GameStatus.SCHEDULED
+                || (provisional.gameSequence() != null && provisional.gameSequence() != 0)
+                || (incoming.sequence() != null && incoming.sequence() != 0)) return false;
+        String confirmedId = incoming.date().toString().replace("-", "")
+                + provisional.awayTeam().teamCode() + provisional.homeTeam().teamCode() + "0";
+        return confirmedId.equals(incoming.externalId());
     }
 
     private long insert(Incoming value) {

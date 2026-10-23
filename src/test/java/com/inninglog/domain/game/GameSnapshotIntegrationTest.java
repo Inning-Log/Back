@@ -15,6 +15,49 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Transactional
 class GameSnapshotIntegrationTest extends GameIntegrationSupport {
     @Test
+    void actualRegularAndPostseasonMonthImportsThroughPublisherContract() throws Exception {
+        var provisional = game(java.time.LocalDate.of(2026,10,10),"SCHEDULED",null,null);
+        provisional.put("homeTeam",Map.of("code","LT"));
+        provisional.put("awayTeam",Map.of("code","LG"));
+        provisional.put("scheduledAt","2026-10-10T08:00:00Z");
+        provisional.remove("externalId"); provisional.put("gameSequence",null);
+        importer.importMessage(message(List.of(provisional),OBSERVED.minusSeconds(1),false));
+        long originalId = games.forDate(java.time.LocalDate.of(2026,10,10)).getFirst().id();
+        try (var data = getClass().getResourceAsStream("/game-snapshots/crawler-postseason-month.json")) {
+            var result = importer.importMessage(new String(data.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            assertThat(result.gameCount()).isEqualTo(49);
+            assertThat(jdbc.queryForObject("select count(*) from games where game_type = 'PLAYOFF'", Long.class)).isEqualTo(5);
+            assertThat(jdbc.queryForObject("select game_id from game_external_ids where external_id='20261010LGLT0'", Long.class)).isEqualTo(originalId);
+            assertThat(games.find(originalId).orElseThrow().scheduledAt()).isEqualTo(java.time.Instant.parse("2026-10-10T05:00:00Z"));
+        }
+    }
+    @Test
+    void confirmedSingleGameIdUpdatesChangedStartTimeAndKeepsViewing() {
+        var input = game(TODAY,"SCHEDULED",null,null);
+        input.remove("externalId"); input.put("gameSequence",null);
+        importer.importMessage(message(List.of(input),OBSERVED,false));
+        long id = games.forDate(TODAY).getFirst().id();
+        var user = user();
+        long logId = viewing(user,id,team("LG"),"STADIUM");
+        input.put("scheduledAt",TODAY+"T05:00:00Z");
+        input.put("externalId",Map.of("kbo",TODAY.toString().replace("-","")+"OBLG0"));
+        importer.importMessage(message(List.of(input),OBSERVED.plusSeconds(1),true));
+        assertThat(games.forDate(TODAY)).hasSize(1);
+        assertThat(games.find(id).orElseThrow().scheduledAt()).isEqualTo(java.time.Instant.parse(TODAY+"T05:00:00Z"));
+        assertThat(games.logById(user.getId(),logId).orElseThrow().gameId()).isEqualTo(id);
+    }
+
+    @Test
+    void changedTimeWithDoubleheaderIdStillFailsClosed() {
+        var input = game(TODAY,"SCHEDULED",null,null);
+        input.remove("externalId"); input.put("gameSequence",null);
+        importer.importMessage(message(List.of(input),OBSERVED,false));
+        input.put("scheduledAt",TODAY+"T05:00:00Z");
+        input.put("externalId",Map.of("kbo",TODAY.toString().replace("-","")+"OBLG1"));
+        assertThatThrownBy(() -> importer.importMessage(message(List.of(input),OBSERVED.plusSeconds(1),true)))
+                .isInstanceOf(GameImportException.class).hasMessage("AMBIGUOUS_GAME_IDENTITY");
+    }
+    @Test
     void realCrawlerPublisherFixturesRoundTripIntoOneSetOfDatabaseGames() throws Exception {
         try (var month = getClass().getResourceAsStream("/game-snapshots/crawler-month.json");
              var window = getClass().getResourceAsStream("/game-snapshots/crawler-game-window.json")) {
