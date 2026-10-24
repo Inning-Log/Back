@@ -3,7 +3,6 @@ package com.inninglog.domain.onboarding.service;
 import com.inninglog.domain.onboarding.dto.OnboardingStatusResponse;
 import com.inninglog.domain.onboarding.dto.UsernameAvailabilityResponse;
 import com.inninglog.domain.onboarding.exception.OnboardingAlreadyCompletedException;
-import com.inninglog.domain.user.dto.UserResponse;
 import com.inninglog.domain.user.entity.User;
 import com.inninglog.domain.user.exception.AccountDeletedException;
 import com.inninglog.domain.user.exception.DuplicateUsernameException;
@@ -24,17 +23,6 @@ public class ProfileSetupService {
     public ProfileSetupService(UserRepository userRepository, TeamQueryService teamQueryService) {
         this.userRepository = userRepository;
         this.teamQueryService = teamQueryService;
-    }
-
-    @Transactional
-    public UserResponse setup(String subject, String username, String nickname) {
-        User user = lockUser(subject);
-        String normalizedUsername = UsernamePolicy.normalize(username);
-
-        validateUsernameAvailable(user, normalizedUsername);
-
-        user.setupProfile(normalizedUsername, nickname.trim());
-        return UserResponse.from(user);
     }
 
     @Transactional(readOnly = true)
@@ -66,15 +54,6 @@ public class ProfileSetupService {
 
         user.selectInitialFavoriteTeam(favoriteTeam);
         return OnboardingStatusResponse.from(user);
-    }
-
-    @Transactional
-    public UserResponse selectInitialFavoriteTeam(String subject, Long favoriteTeamId) {
-        User user = lockUser(subject);
-        KboTeam favoriteTeam = teamQueryService.getEntityById(favoriteTeamId);
-
-        user.selectInitialFavoriteTeam(favoriteTeam);
-        return UserResponse.from(user);
     }
 
     @Transactional(readOnly = true)

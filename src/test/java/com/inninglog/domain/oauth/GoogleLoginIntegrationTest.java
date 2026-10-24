@@ -105,19 +105,11 @@ class GoogleLoginIntegrationTest {
     void profileSetupStoresUsernameAndNickname() throws Exception {
         String accessToken = login("profile-setup");
 
-        mockMvc.perform(put("/api/auth/profile")
-                        .header("Authorization", "Bearer " + accessToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "username": "  inning.user  ",
-                                  "nickname": "  Inning Logger  "
-                                }
-                                """))
+        setupProfile(accessToken, "  inning.user  ", "  Inning Logger  ")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value("inning.user"))
-                .andExpect(jsonPath("$.nickname").value("Inning Logger"))
-                .andExpect(jsonPath("$.onboardingCompleted").value(false));
+                .andExpect(jsonPath("$.user.username").value("inning.user"))
+                .andExpect(jsonPath("$.user.nickname").value("Inning Logger"))
+                .andExpect(jsonPath("$.user.onboardingCompleted").value(false));
 
         mockMvc.perform(get("/api/auth/me")
                         .header("Authorization", "Bearer " + accessToken))
@@ -135,8 +127,8 @@ class GoogleLoginIntegrationTest {
 
         selectFavoriteTeam(accessToken, 3L)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.favoriteTeamId").value(3))
-                .andExpect(jsonPath("$.onboardingCompleted").value(true));
+                .andExpect(jsonPath("$.user.favoriteTeamId").value(3))
+                .andExpect(jsonPath("$.user.onboardingCompleted").value(true));
 
         mockMvc.perform(get("/api/auth/me")
                         .header("Authorization", "Bearer " + accessToken))
@@ -164,7 +156,7 @@ class GoogleLoginIntegrationTest {
 
         selectFavoriteTeam(accessToken, 4L)
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("FAVORITE_TEAM_ALREADY_SELECTED"));
+                .andExpect(jsonPath("$.code").value("ONBOARDING_ALREADY_COMPLETED"));
     }
 
     @Test
@@ -192,8 +184,8 @@ class GoogleLoginIntegrationTest {
 
         setupProfile(secondAccessToken, "another_username", "Same Nickname")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value("another_username"))
-                .andExpect(jsonPath("$.nickname").value("Same Nickname"));
+                .andExpect(jsonPath("$.user.username").value("another_username"))
+                .andExpect(jsonPath("$.user.nickname").value("Same Nickname"));
     }
 
     @Test
@@ -220,7 +212,7 @@ class GoogleLoginIntegrationTest {
 
     @Test
     void profileSetupRequiresAuthentication() throws Exception {
-        mockMvc.perform(put("/api/auth/profile")
+        mockMvc.perform(put("/api/onboarding/username")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -357,6 +349,21 @@ class GoogleLoginIntegrationTest {
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
+    @Test
+    void removedLegacyOnboardingEndpointsAreNotRouted() throws Exception {
+        String accessToken = login("removed-legacy");
+        mockMvc.perform(put("/api/auth/profile").header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"legacy\",\"nickname\":\"Legacy\"}"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/auth/profile/favorite-team").header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"favoriteTeamId\":3}"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/auth/profile/username-availability").header("Authorization", "Bearer " + accessToken)
+                        .queryParam("username", "legacy"))
+                .andExpect(status().isNotFound());
+    }
+
     private String login(String credentialSuffix) throws Exception {
         String responseBody = mockMvc.perform(post("/api/auth/google")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -378,22 +385,22 @@ class GoogleLoginIntegrationTest {
             String username,
             String nickname
     ) throws Exception {
-        return mockMvc.perform(put("/api/auth/profile")
+        var usernameResult = mockMvc.perform(put("/api/onboarding/username")
                 .header("Authorization", "Bearer " + accessToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                        {
-                          "username": "%s",
-                          "nickname": "%s"
-                        }
-                        """.formatted(username, nickname)));
+                .content("{\"username\":\"%s\"}".formatted(username)));
+        if (usernameResult.andReturn().getResponse().getStatus() != 200) return usernameResult;
+        return mockMvc.perform(put("/api/onboarding/nickname")
+                .header("Authorization", "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"nickname\":\"%s\"}".formatted(nickname)));
     }
 
     private org.springframework.test.web.servlet.ResultActions checkUsernameAvailability(
             String accessToken,
             String username
     ) throws Exception {
-        return mockMvc.perform(get("/api/auth/profile/username-availability")
+        return mockMvc.perform(get("/api/onboarding/username-availability")
                 .header("Authorization", "Bearer " + accessToken)
                 .queryParam("username", username));
     }
@@ -402,7 +409,7 @@ class GoogleLoginIntegrationTest {
             String accessToken,
             Long favoriteTeamId
     ) throws Exception {
-        return mockMvc.perform(post("/api/auth/profile/favorite-team")
+        return mockMvc.perform(put("/api/onboarding/favorite-team")
                 .header("Authorization", "Bearer " + accessToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
