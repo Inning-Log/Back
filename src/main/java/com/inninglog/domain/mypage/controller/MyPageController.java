@@ -52,6 +52,21 @@ public class MyPageController {
             description = "JPEG/PNG 기본 최대 10MB. 반환된 URL에 headers와 파일 바이트를 PUT한 뒤 완료 API를 호출합니다. "
                     + "S3 요청에는 서비스 JWT를 보내지 않습니다. 새 요청은 이전 미완료 업로드를 대체합니다.")
     @PostMapping("/profile-image/upload-url")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "S3 PUT URL과 완료 요청용 uploadId 발급",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProfileImageUploadResponse.class))),
+            @ApiResponse(responseCode = "400", description = "잘못된 요청 또는 UNSUPPORTED_PROFILE_IMAGE_TYPE",
+                    content = @Content(schema = @Schema(implementation = MyPageExceptionHandler.MyPageErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content),
+            @ApiResponse(responseCode = "404", description = "사용자 없음",
+                    content = @Content(schema = @Schema(implementation = MyPageExceptionHandler.MyPageErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "탈퇴한 계정",
+                    content = @Content(schema = @Schema(implementation = MyPageExceptionHandler.MyPageErrorResponse.class))),
+            @ApiResponse(responseCode = "413", description = "PROFILE_IMAGE_TOO_LARGE: 최대 용량 초과",
+                    content = @Content(schema = @Schema(implementation = MyPageExceptionHandler.MyPageErrorResponse.class))),
+            @ApiResponse(responseCode = "503", description = "프로필 이미지 저장소 사용 불가",
+                    content = @Content(schema = @Schema(implementation = MyPageExceptionHandler.MyPageErrorResponse.class)))
+    })
     public ProfileImageUploadResponse requestImageUpload(JwtAuthenticationToken authentication,
             @Valid @RequestBody ProfileImageUploadRequest request) {
         return profileImages.requestUpload(authentication.getName(), request);
@@ -61,6 +76,19 @@ public class MyPageController {
             description = "실제 이미지 형식·크기·해상도를 검사하고 최대 1024px PNG로 변환한 뒤 프로필에 반영합니다. "
                     + "응답 profileImageUrl은 만료되지 않는 /api 경로이며 img 태그에서 사용할 수 있습니다.")
     @PostMapping("/profile-image/{uploadId}/complete")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "이미지 검증·적용 완료. 현재 적용된 동일 업로드는 재호출해도 성공",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = MyPageResponse.class))),
+            @ApiResponse(responseCode = "400", description = "잘못된 uploadId, 유효하지 않은 이미지 또는 해상도 제한 초과",
+                    content = @Content(schema = @Schema(implementation = MyPageExceptionHandler.MyPageErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content),
+            @ApiResponse(responseCode = "404", description = "사용자 또는 본인 업로드 없음",
+                    content = @Content(schema = @Schema(implementation = MyPageExceptionHandler.MyPageErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "업로드 누락·불일치·만료·교체 또는 탈퇴 계정. 만료·교체 시 새 URL 발급 필요",
+                    content = @Content(schema = @Schema(implementation = MyPageExceptionHandler.MyPageErrorResponse.class))),
+            @ApiResponse(responseCode = "503", description = "프로필 이미지 저장소 사용 불가",
+                    content = @Content(schema = @Schema(implementation = MyPageExceptionHandler.MyPageErrorResponse.class)))
+    })
     public MyPageResponse completeImageUpload(JwtAuthenticationToken authentication, @PathVariable UUID uploadId) {
         return profileImages.complete(authentication.getName(), uploadId);
     }
