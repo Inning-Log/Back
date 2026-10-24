@@ -3,6 +3,7 @@ package com.inninglog.domain.timeline.service;
 import com.inninglog.domain.game.dto.GameResponse;
 import com.inninglog.domain.game.exception.GameException;
 import com.inninglog.domain.game.model.Game;
+import com.inninglog.domain.game.model.GameRecordingSummary;
 import com.inninglog.domain.game.model.GameStatus;
 import com.inninglog.domain.game.model.UserGameLog;
 import com.inninglog.domain.game.repository.GameRepository;
@@ -61,10 +62,10 @@ public class TimelineService {
         var viewing = log == null ? null : new TimelineResponse.Viewing(log.id(), log.viewingType(), log.cheeringTeamId());
         // game.myViewing always means the authenticated viewer, even on a friend's timeline.
         var myLog = own ? log : activeLog(viewer.getId(), gameId).orElse(null);
-        long count = log == null ? 0 : records.count(log.id());
-        long myCount = own ? count : myLog == null ? 0 : records.count(myLog.id());
+        var myRecording = myLog == null ? GameRecordingSummary.EMPTY : games.recordingSummaryForGame(viewer.getId(), gameId);
+        long count = own ? myRecording.recordCount() : log == null ? 0 : records.count(log.id());
         return new TimelineResponse(today(), "Asia/Seoul", owner,
-                GameResponse.from(game, myLog, viewer.getFavoriteTeam().getId(), myCount), viewing,
+                GameResponse.from(game, myLog, viewer.getFavoriteTeam().getId(), myRecording), viewing,
                 game.currentInning(), game.currentHalf(), own && writableGame && log != null,
                 own && writableGame && log == null, count,
                 page.stream().map(InningRecordResponse::from).toList(),

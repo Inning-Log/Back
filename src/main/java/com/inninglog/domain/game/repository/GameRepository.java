@@ -1,6 +1,7 @@
 package com.inninglog.domain.game.repository;
 
 import com.inninglog.domain.game.model.Game;
+import com.inninglog.domain.game.model.GameRecordingSummary;
 import com.inninglog.domain.game.model.GameStatus;
 import com.inninglog.domain.game.model.GameStateSnapshot;
 import com.inninglog.domain.game.model.GameType;
@@ -144,15 +145,29 @@ public class GameRepository {
         jdbc.update("update user_game_logs set deleted_at = ?, updated_at = ? where user_id = ? and deleted_at is null", timestamp(now), timestamp(now), userId);
     }
 
-    public Map<Long, Long> recordCountsForRange(long userId, LocalDate from, LocalDate until) {
-        Map<Long, Long> result = new HashMap<>();
-        jdbc.query("""
-                select l.game_id, count(r.id) total from user_game_logs l
-                join games g on g.id = l.game_id join inning_records r on r.user_game_log_id = l.id
-                where l.user_id = ? and l.deleted_at is null and r.deleted_at is null
-                  and g.game_date >= ? and g.game_date < ? group by l.game_id
-                """, rs -> { result.put(rs.getLong("game_id"), rs.getLong("total")); }, userId, from, until);
+    private static final String RECORDING_SUMMARY_SELECT = """
+            select l.game_id, count(r.id) total,
+                   sum(case when exists (
+                       select 1 from inning_record_videos v
+                        where v.inning_record_id = r.id and v.deleted_at is null and v.status = 'READY'
+                   ) then 1 else 0 end) ready_videos
+              from user_game_logs l join games g on g.id = l.game_id
+              join inning_records r on r.user_game_log_id = l.id
+             where l.user_id = ? and l.deleted_at is null and r.deleted_at is null
+            """;
+
+    public Map<Long, GameRecordingSummary> recordingSummariesForRange(long userId, LocalDate from, LocalDate until) {
+        Map<Long, GameRecordingSummary> result = new HashMap<>();
+        jdbc.query(RECORDING_SUMMARY_SELECT + " and g.game_date >= ? and g.game_date < ? group by l.game_id",
+                rs -> { result.put(rs.getLong("game_id"), new GameRecordingSummary(rs.getLong("total"), rs.getLong("ready_videos"))); },
+                userId, from, until);
         return result;
+    }
+
+    public GameRecordingSummary recordingSummaryForGame(long userId, long gameId) {
+        return jdbc.query(RECORDING_SUMMARY_SELECT + " and l.game_id = ? group by l.game_id",
+                (rs, index) -> new GameRecordingSummary(rs.getLong("total"), rs.getLong("ready_videos")), userId, gameId)
+                .stream().findFirst().orElse(GameRecordingSummary.EMPTY);
     }
 
     public SyncState syncState(String key) {

@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -23,7 +24,7 @@ public class GameService {
         this.games = games; this.access = access; this.clock = clock;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public GameListResponse forDate(String subject, LocalDate date) {
         User user = access.require(subject, false);
         if (date.getYear() < 1900 || date.getYear() > 9998)
@@ -33,10 +34,10 @@ public class GameService {
         var daily = games.syncState("DAY:" + date);
         var monthly = games.syncState("MONTH:" + YearMonth.from(date));
         var state = "NOT_IMPORTED".equals(daily.state()) ? monthly : daily;
-        var recordCounts = games.recordCountsForRange(user.getId(), date, date.plusDays(1));
+        var recordings = games.recordingSummariesForRange(user.getId(), date, date.plusDays(1));
         return new GameListResponse(date, today(), state, games.forDate(date).stream()
                 .map(game -> GameResponse.from(game, logs.get(game.id()), user.getFavoriteTeam().getId(),
-                        recordCounts.getOrDefault(game.id(), 0L))).toList());
+                        recordings.getOrDefault(game.id(), GameRecordingSummary.EMPTY))).toList());
     }
 
     @Transactional(readOnly = true)
