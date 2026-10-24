@@ -1,6 +1,7 @@
 package com.inninglog.domain.notification.service;
 
 import com.inninglog.domain.notification.entity.NotificationOutbox;
+import com.inninglog.domain.notification.entity.NotificationType;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
@@ -14,9 +15,11 @@ public class NotificationPayloadCodec {
     };
 
     private final ObjectMapper objectMapper;
+    private final NotificationLinkService links;
 
-    public NotificationPayloadCodec(ObjectMapper objectMapper) {
+    public NotificationPayloadCodec(ObjectMapper objectMapper, NotificationLinkService links) {
         this.objectMapper = objectMapper;
+        this.links = links;
     }
 
     public String encode(Map<String, String> data) {
@@ -32,7 +35,11 @@ public class NotificationPayloadCodec {
                 outbox.getNotificationType(),
                 outbox.getTitle(),
                 outbox.getBody(),
-                decodeData(outbox.getDataJson()));
+                decodeData(outbox.getNotificationType(), outbox.getDataJson()));
+    }
+
+    public Map<String, String> decodeData(NotificationType type, String dataJson) {
+        return links.forNotification(type, decodeData(dataJson));
     }
 
     public Map<String, String> decodeData(String dataJson) {

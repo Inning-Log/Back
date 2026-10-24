@@ -1,5 +1,6 @@
 package com.inninglog.domain.notification.service;
 
+import com.inninglog.domain.notification.entity.NotificationType;
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -43,9 +44,25 @@ public class NotificationLinkService {
 
     public Map<String, String> friendshipData(Map<String, String> data, boolean accepted) {
         Map<String, String> result = new LinkedHashMap<>(data);
-        String link = url(accepted ? "/mypage/friends" : "/home/notifications?tab=friends");
+        // The client resolves the friend's current game, including its empty state, from this route.
+        String link = url(accepted ? acceptedFriendPath(data) : "/home/notifications?tab=friends");
         if (link != null) result.put("link", link);
         return result;
+    }
+
+    /** Apply the current destination to older inbox entries and queued pushes as well. */
+    public Map<String, String> forNotification(NotificationType type, Map<String, String> data) {
+        return type == NotificationType.FRIEND_ACCEPTED ? friendshipData(data, true) : data;
+    }
+
+    private String acceptedFriendPath(Map<String, String> data) {
+        try {
+            long userId = Long.parseLong(data.get("actorUserId"));
+            if (userId > 0) return "/timeline/" + userId;
+        } catch (NumberFormatException ignored) {
+            // Very old entries without an actor can still open the existing friends screen.
+        }
+        return "/mypage/friends";
     }
 
     private String url(String path) {

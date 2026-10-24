@@ -124,7 +124,7 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
                 .andExpect(jsonPath("$.days[13].games[0].displayResult").value("WIN"))
                 .andExpect(jsonPath("$.days[13].games[1].displayResult").value("LOSS"))
                 .andExpect(jsonPath("$.days[13].games[1].myViewing.viewingType").value("HOME"))
-                .andExpect(jsonPath("$.days[13].games[1].recordingState").value("UNAVAILABLE"));
+                .andExpect(jsonPath("$.days[13].games[1].recordingState").value("NONE"));
         mvc.perform(get("/api/home/win-rate").with(as(user))).andExpect(jsonPath("$.registeredCount").value(1));
         mvc.perform(get("/api/games").with(as(user)).param("date",TODAY.toString()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.games.length()").value(2));

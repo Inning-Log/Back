@@ -16,8 +16,22 @@ class NotificationLinkServiceTest {
                 .isEqualTo("https://inning-log.vercel.app/timeline/history/2?recordId=3&videoId=4&commentId=5");
         assertThat(links.video(2L, 3L, 4L, 5L, 7L, 8L))
                 .isEqualTo("https://inning-log.vercel.app/timeline/7?gameId=2&recordId=3&videoId=4&commentId=5");
+        assertThat(links.friendshipData(Map.of("friendshipId", "6", "actorUserId", "8"), true))
+                .containsEntry("friendshipId", "6").containsEntry("actorUserId", "8")
+                .containsEntry("link", "https://inning-log.vercel.app/timeline/8");
+        assertThat(links.friendshipData(Map.of("friendshipId", "6", "actorUserId", "8"), false))
+                .containsEntry("link", "https://inning-log.vercel.app/home/notifications?tab=friends");
+    }
+
+    @Test
+    void legacyOrInvalidActorFallsBackWithoutTreatingItAsUrlContent() {
+        var links = new NotificationLinkService("https://inning-log.vercel.app");
         assertThat(links.friendshipData(Map.of("friendshipId", "6"), true))
-                .containsEntry("friendshipId", "6").containsEntry("link", "https://inning-log.vercel.app/mypage/friends");
+                .containsEntry("link", "https://inning-log.vercel.app/mypage/friends");
+        for (String actor : new String[]{"0", "-1", "1?gameId=2", "//elsewhere.example", "9223372036854775808"}) {
+            assertThat(links.friendshipData(Map.of("actorUserId", actor), true))
+                    .containsEntry("link", "https://inning-log.vercel.app/mypage/friends");
+        }
     }
 
     @Test
