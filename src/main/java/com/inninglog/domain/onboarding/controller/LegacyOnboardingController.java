@@ -30,7 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/auth/profile")
 @Validated
-@Tag(name = "온보딩 호환 API", description = "구버전 클라이언트를 위한 일괄 프로필 온보딩 API")
+@Tag(name = "온보딩 호환 API", description = "신규 사용 중단. 기존 클라이언트 호환을 위해 유지하며 신규 연동은 /api/onboarding을 사용합니다.")
 public class LegacyOnboardingController {
 
     private final ProfileSetupService profileSetupService;
@@ -39,8 +39,8 @@ public class LegacyOnboardingController {
         this.profileSetupService = profileSetupService;
     }
 
-    @Operation(summary = "아이디와 닉네임 일괄 설정",
-            description = "아이디와 닉네임을 한 요청으로 저장합니다. 신규 클라이언트는 단계별 /api/onboarding API 사용을 권장합니다.")
+    @Operation(summary = "아이디와 닉네임 일괄 설정", deprecated = true,
+            description = "호환용 API입니다. 신규 연동은 PUT /api/onboarding/username과 PUT /api/onboarding/nickname을 사용합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "아이디와 닉네임 저장 성공",
                     content = @Content(schema = @Schema(implementation = UserResponse.class))),
@@ -59,8 +59,8 @@ public class LegacyOnboardingController {
         return profileSetupService.setup(authentication.getName(), request.username(), request.nickname());
     }
 
-    @Operation(summary = "최초 응원팀 선택",
-            description = "최초 응원팀을 저장하고 온보딩을 완료합니다. 단계별 API와의 하위 호환용입니다.")
+    @Operation(summary = "최초 응원팀 선택", deprecated = true,
+            description = "호환용 API입니다. 신규 연동은 PUT /api/onboarding/favorite-team을 사용합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "응원팀 저장 및 온보딩 완료",
                     content = @Content(schema = @Schema(implementation = UserResponse.class))),
@@ -79,8 +79,8 @@ public class LegacyOnboardingController {
         return profileSetupService.selectInitialFavoriteTeam(authentication.getName(), request.favoriteTeamId());
     }
 
-    @Operation(summary = "아이디 사용 가능 여부 확인",
-            description = "입력값을 소문자로 정규화한 뒤 중복 여부를 확인합니다.")
+    @Operation(summary = "아이디 사용 가능 여부 확인", deprecated = true,
+            description = "호환용 API입니다. 신규 연동은 GET /api/onboarding/username-availability를 사용합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "중복 확인 성공",
                     content = @Content(schema = @Schema(implementation = UsernameAvailabilityResponse.class))),
