@@ -72,7 +72,7 @@ public class UserNotificationService {
                 notification.getNotificationType(),
                 notification.getTitle(),
                 notification.getBody(),
-                payloadCodec.decodeData(notification.getDataJson()),
+                payloadCodec.decodeData(notification.getNotificationType(), notification.getDataJson()),
                 notification.getReadAt(),
                 notification.getCreatedAt());
     }

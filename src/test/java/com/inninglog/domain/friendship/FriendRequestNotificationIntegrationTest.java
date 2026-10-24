@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -27,7 +28,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.notifications.frontend-origin=https://inning-log.vercel.app")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class FriendRequestNotificationIntegrationTest {
@@ -37,6 +38,34 @@ class FriendRequestNotificationIntegrationTest {
     @Autowired UserNotificationRepository notifications;
     @Autowired JwtTokenProvider tokens;
     @Autowired JdbcTemplate jdbc;
+
+    @Test
+    void acceptanceInboxUsesFriendTimelineForNewAndPreviouslyStoredNotifications() throws Exception {
+        User requester = user();
+        User receiver = user();
+        long id = request(requester, receiver);
+        resolve(receiver, id, "accept");
+        String expected = "https://inning-log.vercel.app/timeline/" + receiver.getId();
+        String response = mvc.perform(get("/api/notifications").header("Authorization", auth(requester)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].data.link").value(expected))
+                .andExpect(jsonPath("$.items[0].data.actorUserId").value(receiver.getId().toString()))
+                .andReturn().getResponse().getContentAsString();
+        long notificationId = ((Number) JsonPath.read(response, "$.items[0].id")).longValue();
+        mvc.perform(patch("/api/notifications/{id}/read", notificationId).header("Authorization", auth(requester)))
+                .andExpect(status().isNoContent());
+        Instant readAt = notifications.findById(notificationId).orElseThrow().getReadAt();
+        String legacyData = "{\"actorUserId\":\"" + receiver.getId() + "\",\"friendshipId\":\"" + id
+                + "\",\"link\":\"https://inning-log.vercel.app/mypage/friends\"}";
+        jdbc.update("update notifications set data_json = ? where id = ?", legacyData, notificationId);
+
+        mvc.perform(get("/api/notifications").header("Authorization", auth(requester)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].data.link").value(expected))
+                .andExpect(jsonPath("$.items[0].data.friendshipId").value(Long.toString(id)))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+        UserNotification stored = notifications.findById(notificationId).orElseThrow();
+        assertThat(stored.getReadAt()).isEqualTo(readAt);
+        assertThat(stored.getDataJson()).isEqualTo(legacyData);
+    }
 
     @Test
     void acceptingReadsOnlyTheResolvedRequestAndRepeatedAcceptPreservesReadTimestamp() throws Exception {

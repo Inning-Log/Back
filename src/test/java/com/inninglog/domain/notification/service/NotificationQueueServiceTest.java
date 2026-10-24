@@ -27,7 +27,7 @@ class NotificationQueueServiceTest {
     private final NotificationMetrics metrics = mock(NotificationMetrics.class);
     private final NotificationOutboxService outboxService = new NotificationOutboxService(
             outboxWriter,
-            new NotificationPayloadCodec(objectMapper),
+            new NotificationPayloadCodec(objectMapper, new NotificationLinkService("")),
             new FcmPayloadValidator(objectMapper),
             metrics,
             Clock.fixed(FIXED_NOW, ZoneOffset.UTC));
