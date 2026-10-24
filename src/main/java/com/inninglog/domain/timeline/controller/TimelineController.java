@@ -3,6 +3,9 @@ package com.inninglog.domain.timeline.controller;
 import com.inninglog.domain.timeline.dto.TimelineProfilesResponse;
 import com.inninglog.domain.timeline.dto.TimelineResponse;
 import com.inninglog.domain.timeline.service.TimelineService;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import com.inninglog.domain.game.controller.GameExceptionHandler;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -16,10 +19,14 @@ import org.springframework.web.bind.annotation.*;
 @Validated
 @Tag(name = "타임라인", description = "경기 ID로 조회하는 본인·수락한 친구의 이닝 기록")
 @ApiResponse(responseCode = "200", description = "조회 성공")
-@ApiResponse(responseCode = "400", description = "경기 ID, 페이지 크기 또는 커서 오류")
-@ApiResponse(responseCode = "401", description = "인증 필요")
-@ApiResponse(responseCode = "404", description = "대상 없음 또는 친구 열람 권한 없음")
-@ApiResponse(responseCode = "409", description = "온보딩 미완료")
+@ApiResponse(responseCode = "400", description = "경기 ID, 페이지 크기 또는 커서 오류",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
+@ApiResponse(responseCode = "401", description = "인증 필요",
+        content = @Content)
+@ApiResponse(responseCode = "404", description = "대상 없음 또는 친구 열람 권한 없음",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
+@ApiResponse(responseCode = "409", description = "온보딩 미완료",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
 public class TimelineController {
     private final TimelineService service;
     public TimelineController(TimelineService service) { this.service = service; }
@@ -33,7 +40,7 @@ public class TimelineController {
     }
 
     @GetMapping("/{userId}")
-    @Operation(summary = "친구의 경기 타임라인", description = "userId는 숫자 사용자 ID입니다. 본인 또는 현재 ACCEPTED 친구만 열람할 수 있습니다.")
+    @Operation(summary = "친구의 경기 타임라인", description = "userId는 숫자 사용자 ID입니다. 본인 또는 현재 ACCEPTED 친구만 열람할 수 있습니다. 최상위 owner·viewing·records·recordCount는 대상 사용자 기준이며, game 안의 myViewing·recordingState·recordCount는 인증 사용자 본인 기준입니다. nextCursor는 같은 사용자·경기에서만 사용합니다.")
     public TimelineResponse friend(JwtAuthenticationToken auth, @PathVariable @Positive long userId,
                                    @RequestParam @Positive long gameId,
                                    @RequestParam(required = false) @Size(max = 256) String cursor,

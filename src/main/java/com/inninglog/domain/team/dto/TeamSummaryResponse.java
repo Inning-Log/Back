@@ -1,5 +1,6 @@
 package com.inninglog.domain.team.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.inninglog.domain.team.entity.KboTeam;
 
 public record TeamSummaryResponse(
@@ -7,8 +8,8 @@ public record TeamSummaryResponse(
         String teamCode,
         String name,
         String shortName,
-        String logoUrl,
-        String primaryColor,
+        @Schema(description = "로고 미등록 시 null", nullable = true) String logoUrl,
+        @Schema(description = "대표 색상 미등록 시 null", nullable = true) String primaryColor,
         Integer displayOrder
 ) {
 

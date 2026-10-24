@@ -1,5 +1,6 @@
 package com.inninglog.domain.game.model;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -12,7 +13,13 @@ public record Game(
         Integer currentInning, String currentHalf, Instant scheduleObservedAt,
         Instant resultObservedAt, String resultSource
 ) {
-    public record Team(long id, String teamCode, String name, String shortName, String logoUrl) {}
+    public record Team(
+            long id,
+            String teamCode,
+            String name,
+            String shortName,
+            @Schema(description = "로고 미등록 시 null", nullable = true) String logoUrl
+    ) {}
 
     public boolean includesTeam(long teamId) {
         return homeTeam.id() == teamId || awayTeam.id() == teamId;

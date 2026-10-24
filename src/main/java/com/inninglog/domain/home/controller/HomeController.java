@@ -3,6 +3,9 @@ package com.inninglog.domain.home.controller;
 import com.inninglog.domain.home.dto.CalendarResponse;
 import com.inninglog.domain.home.dto.WinRateResponse;
 import com.inninglog.domain.home.service.HomeService;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import com.inninglog.domain.game.controller.GameExceptionHandler;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -16,10 +19,15 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/home")
 @Validated
 @Tag(name = "홈", description = "월별 달력과 현재 정규시즌 누적 직관 승률")
+@ApiResponse(responseCode = "404", description = "사용자 없음",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
 @ApiResponse(responseCode = "200", description = "조회 성공")
-@ApiResponse(responseCode = "400", description = "연월 요청 오류")
-@ApiResponse(responseCode = "401", description = "인증 필요")
-@ApiResponse(responseCode = "409", description = "온보딩 미완료 또는 탈퇴한 계정")
+@ApiResponse(responseCode = "400", description = "연월 요청 오류",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
+@ApiResponse(responseCode = "401", description = "인증 필요",
+        content = @Content)
+@ApiResponse(responseCode = "409", description = "온보딩 미완료 또는 탈퇴한 계정",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
 public class HomeController {
     private final HomeService service;
     public HomeController(HomeService service) { this.service = service; }

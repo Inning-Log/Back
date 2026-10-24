@@ -47,17 +47,28 @@ public class NotificationController {
         this.userNotificationService = userNotificationService;
     }
 
-    @Operation(summary = "알림 목록 조회", description = "최신순 커서 페이지와 전체 미읽음 개수를 조회합니다.")
+    @Operation(summary = "알림 목록 조회", description = "모든 유형의 알림을 최신순으로 페이지 처리합니다. unreadCount는 전체 미읽음 수입니다. 처리 완료된 친구 신청은 읽음 처리되며 미읽음 수에서 제외됩니다. items에서 유형을 필터링해도 hasNext가 true면 다음 페이지를 조회해야 합니다.")
+    @ApiResponse(responseCode = "200", description = "알림 페이지와 전체 미읽음 수",
+            content = @Content(schema = @Schema(implementation = NotificationListResponse.class)))
+    @ApiResponse(responseCode = "400", description = "유효하지 않은 cursor 또는 size", content = @Content)
+    @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content)
+    @ApiResponse(responseCode = "404", description = "사용자 없음",
+            content = @Content(schema = @Schema(implementation = NotificationExceptionHandler.NotificationErrorResponse.class)))
     @GetMapping
     public NotificationListResponse getNotifications(
             JwtAuthenticationToken authentication,
-            @RequestParam(required = false) @Min(1) Long cursor,
+            @Parameter(description = "직전 응답의 nextCursor. 첫 페이지는 생략") @RequestParam(required = false) @Min(1) Long cursor,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
         return userNotificationService.getNotifications(authentication.getName(), cursor, size);
     }
 
     @Operation(summary = "알림 읽음 처리", description = "본인 알림 하나를 읽음 처리합니다. 반복 호출해도 안전합니다.")
+    @ApiResponse(responseCode = "204", description = "읽음 처리 완료. 응답 본문 없음", content = @Content)
+    @ApiResponse(responseCode = "400", description = "유효하지 않은 알림 ID", content = @Content)
+    @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content)
+    @ApiResponse(responseCode = "404", description = "사용자 또는 본인 알림 없음",
+            content = @Content(schema = @Schema(implementation = NotificationExceptionHandler.NotificationErrorResponse.class)))
     @PatchMapping("/{id}/read")
     public ResponseEntity<Void> markRead(
             JwtAuthenticationToken authentication,
@@ -68,6 +79,10 @@ public class NotificationController {
     }
 
     @Operation(summary = "모든 알림 읽음 처리", description = "현재 사용자의 모든 미읽음 알림을 읽음 처리합니다.")
+    @ApiResponse(responseCode = "204", description = "전체 읽음 처리 완료. 응답 본문 없음", content = @Content)
+    @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content)
+    @ApiResponse(responseCode = "404", description = "사용자 없음",
+            content = @Content(schema = @Schema(implementation = NotificationExceptionHandler.NotificationErrorResponse.class)))
     @PatchMapping("/read-all")
     public ResponseEntity<Void> markAllRead(JwtAuthenticationToken authentication) {
         userNotificationService.markAllRead(authentication.getName());

@@ -2,6 +2,8 @@ package com.inninglog.domain.game.controller;
 
 import com.inninglog.domain.game.dto.*;
 import com.inninglog.domain.game.service.GameService;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,10 +19,14 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/user-game-logs")
 @Validated
 @Tag(name = "관람 기록", description = "직관/집관 등록과 본인 기록 관리")
-@ApiResponse(responseCode = "400", description = "요청 검증 오류")
-@ApiResponse(responseCode = "401", description = "인증 필요")
-@ApiResponse(responseCode = "404", description = "경기 또는 본인 기록 없음")
-@ApiResponse(responseCode = "409", description = "당일 경기 아님, 취소 경기, 기존 기록 충돌 또는 온보딩 미완료")
+@ApiResponse(responseCode = "400", description = "요청 검증 오류",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
+@ApiResponse(responseCode = "401", description = "인증 필요",
+        content = @Content)
+@ApiResponse(responseCode = "404", description = "경기 또는 본인 기록 없음",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
+@ApiResponse(responseCode = "409", description = "당일 경기 아님, 취소 경기, 기존 기록 충돌 또는 온보딩 미완료",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
 public class UserGameLogController {
     private final GameService service;
     public UserGameLogController(GameService service) { this.service = service; }
@@ -50,7 +56,8 @@ public class UserGameLogController {
 
     @DeleteMapping("/{id}")
     @Operation(summary = "내 관람 기록 삭제", description = "소프트 삭제합니다. 반복 삭제는 204이며 다른 사용자의 기록은 404입니다.")
-    @ApiResponse(responseCode = "204", description = "삭제 완료")
+    @ApiResponse(responseCode = "204", description = "삭제 완료",
+        content = @Content)
     public ResponseEntity<Void> delete(JwtAuthenticationToken auth, @PathVariable @Positive long id) {
         service.delete(auth.getName(), id);
         return ResponseEntity.noContent().build();

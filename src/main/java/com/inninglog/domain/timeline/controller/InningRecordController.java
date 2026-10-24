@@ -2,6 +2,9 @@ package com.inninglog.domain.timeline.controller;
 
 import com.inninglog.domain.timeline.dto.*;
 import com.inninglog.domain.timeline.service.TimelineService;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import com.inninglog.domain.game.controller.GameExceptionHandler;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,16 +20,20 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/inning-records")
 @Validated
 @Tag(name = "이닝 기록", description = "타임라인 기록 저장·상세·문구 정정·삭제. 영상 업로드와 합성은 별도 기능입니다.")
-@ApiResponse(responseCode = "400", description = "요청 형식 또는 촬영 시각 오류")
-@ApiResponse(responseCode = "401", description = "인증 필요")
-@ApiResponse(responseCode = "404", description = "기록 없음 또는 접근 권한 없음")
-@ApiResponse(responseCode = "409", description = "관람 미등록, 기록 불가 경기, 중복 요청 충돌 또는 삭제된 기록")
+@ApiResponse(responseCode = "400", description = "요청 형식 또는 촬영 시각 오류",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
+@ApiResponse(responseCode = "401", description = "인증 필요",
+        content = @Content)
+@ApiResponse(responseCode = "404", description = "기록 없음 또는 접근 권한 없음",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
+@ApiResponse(responseCode = "409", description = "관람 미등록, 기록 불가 경기, 중복 요청 충돌 또는 삭제된 기록",
+        content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
 public class InningRecordController {
     private final TimelineService service;
     public InningRecordController(TimelineService service) { this.service = service; }
 
     @PostMapping
-    @Operation(summary = "이닝 기록 등록", description = "먼저 gameId로 직관·집관을 등록합니다. 같은 이닝의 여러 기록을 허용하며 clientRecordId(UUID)로 재시도를 구분합니다. 점수는 서버 관측에서만 가져옵니다.")
+    @Operation(summary = "이닝 기록 등록", description = "먼저 gameId로 직관·집관을 등록합니다. 같은 이닝의 여러 기록을 허용합니다. clientRecordId(UUID)와 최초 본문을 유지해 재시도합니다. inning·half·recordedAt은 촬영 당시 값이며 저장 시점 값으로 바꾸지 않습니다. 점수는 촬영 시점 이전 서버 관측에서 가져오며 관측 이력이 없으면 null입니다.")
     @ApiResponse(responseCode = "201", description = "신규 기록")
     @ApiResponse(responseCode = "200", description = "동일 요청 재시도")
     public ResponseEntity<InningRecordResponse> create(JwtAuthenticationToken auth, @Valid @RequestBody CreateInningRecordRequest request) {
@@ -53,7 +60,8 @@ public class InningRecordController {
 
     @DeleteMapping("/{id}")
     @Operation(summary = "내 이닝 기록 삭제", description = "반복 삭제도 204입니다. 이닝 기록을 삭제해도 관람 등록과 승률은 유지됩니다.")
-    @ApiResponse(responseCode = "204", description = "삭제 완료")
+    @ApiResponse(responseCode = "204", description = "삭제 완료",
+        content = @Content)
     public ResponseEntity<Void> delete(JwtAuthenticationToken auth, @PathVariable @Positive long id) {
         service.delete(auth.getName(), id);
         return ResponseEntity.noContent().build();
