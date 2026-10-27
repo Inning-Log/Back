@@ -61,8 +61,21 @@ public class GameRepository {
     }
 
     public List<Game> forDate(LocalDate date) {
-        return jdbc.query(GAME_SELECT + " where g.game_date = ? order by g.scheduled_at nulls last, g.game_sequence nulls last, g.id",
+        return jdbc.query(GAME_SELECT + " where g.game_date = ? and g.schedule_active = true order by g.scheduled_at nulls last, g.game_sequence nulls last, g.id",
                 GAME_MAPPER, date);
+    }
+
+    public boolean scheduleActive(long gameId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("select schedule_active from games where id = ?", Boolean.class, gameId));
+    }
+
+    public List<Game> includingWithdrawnForDate(LocalDate date) {
+        return jdbc.query(GAME_SELECT + " where g.game_date = ? order by g.id", GAME_MAPPER, date);
+    }
+
+    public Optional<Instant> earliestUnconfirmedStart(LocalDate date) {
+        return jdbc.query("select scheduled_at from game_unconfirmed_starts where game_date = ? order by scheduled_at limit 1",
+                (rs, i) -> instant(rs, "scheduled_at"), date).stream().findFirst();
     }
 
     public List<GameStateSnapshot> stateHistory(long gameId) {
@@ -83,6 +96,7 @@ public class GameRepository {
     public List<Game> forMonth(long userId, long teamId, LocalDate from, LocalDate until) {
         return jdbc.query(GAME_SELECT + """
                  where g.game_date >= ? and g.game_date < ?
+                   and g.schedule_active = true
                    and (g.home_team_id = ? or g.away_team_id = ? or exists (
                        select 1 from user_game_logs l where l.game_id = g.id and l.user_id = ? and l.deleted_at is null))
                  order by g.game_date, g.scheduled_at nulls last, g.game_sequence nulls last, g.id

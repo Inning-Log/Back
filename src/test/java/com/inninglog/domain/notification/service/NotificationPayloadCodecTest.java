@@ -32,4 +32,13 @@ class NotificationPayloadCodecTest {
         assertThat(codec.decodeData(NotificationType.TIMELINE_COMMENT, stored)).isEqualTo(data);
         assertThat(codec.decodeData(stored)).isEqualTo(data);
     }
+
+    @Test
+    void oldCommentNotificationsGetActualRecipientWithoutConfusingVideoOwnerOrActor() {
+        String stored = codec.encode(Map.of("ownerUserId","8","actorUserId","9","videoId","10"));
+        assertThat(codec.decodeData(NotificationType.TIMELINE_COMMENT,stored,7))
+                .containsEntry("recipientUserId","7").containsEntry("ownerUserId","8").containsEntry("actorUserId","9");
+        var outbox = new NotificationOutbox("comment:10",1L,7L,NotificationType.TIMELINE_COMMENT,"reply","body",stored,Instant.now());
+        assertThat(codec.decode(outbox).data()).containsEntry("recipientUserId","7");
+    }
 }

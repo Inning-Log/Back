@@ -54,6 +54,24 @@ class TimelineApiIntegrationTest extends GameIntegrationSupport {
     }
 
     @Test
+    void yesterdayRemainsVisibleAndRecordableAfterMidnightUntilLeagueReset() throws Exception {
+        var user = user();
+        long previous = ingest(game(TODAY.minusDays(1), "FINISHED", 5, 3));
+        assertThat(timeline(user,previous).path("requiresViewingRegistration").booleanValue()).isTrue();
+        mvc.perform(post("/api/user-game-logs").with(as(user)).contentType(MediaType.APPLICATION_JSON)
+                .content(registration(previous,"HOME"))).andExpect(status().isCreated());
+        create(user, input(previous, 9, NOW.minusSeconds(20)));
+        mvc.perform(get("/api/timelines/profiles").with(as(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.today").value(TODAY.toString()))
+                .andExpect(jsonPath("$.timelineDate").value(TODAY.minusDays(1).toString()))
+                .andExpect(jsonPath("$.nextResetAt").value(TODAY+"T09:30:00Z"))
+                .andExpect(jsonPath("$.me.games[0].gameId").value(previous))
+                .andExpect(jsonPath("$.me.hasRecordedToday").value(true));
+        assertThat(timeline(user,previous).path("canCreateRecord").booleanValue()).isTrue();
+    }
+
+    @Test
     void multipleRecordsInSameInningAndHalfRemainSeparateAndAppearOnCalendar() throws Exception {
         var user = user();
         long gameId = setup(user);
@@ -85,7 +103,7 @@ class TimelineApiIntegrationTest extends GameIntegrationSupport {
         long id = create(user, body).path("id").longValue();
         mvc.perform(patch("/api/inning-records/{id}", id).with(as(user)).contentType(MediaType.APPLICATION_JSON).content("{\"text\":\"수정한 문구\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.text").value("수정한 문구"));
-        jdbc.update("update games set game_date = ? where id = ?", TODAY.minusDays(1), gameId);
+        jdbc.update("update games set game_date = ? where id = ?", TODAY.minusDays(2), gameId);
         mvc.perform(post("/api/inning-records").with(as(user)).contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(body)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(id)).andExpect(jsonPath("$.text").value("수정한 문구"));
         body.put("text", "다른 최초 요청");
@@ -110,7 +128,7 @@ class TimelineApiIntegrationTest extends GameIntegrationSupport {
         jdbc.update("update games set status = 'CANCELED' where id = ?", gameId);
         mvc.perform(post("/api/inning-records").with(as(user)).contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(input(gameId, 1, NOW))))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("GAME_NOT_RECORDABLE"));
-        jdbc.update("update games set status = 'FINISHED', game_date = ? where id = ?", TODAY.minusDays(1), gameId);
+        jdbc.update("update games set status = 'FINISHED', game_date = ? where id = ?", TODAY.minusDays(2), gameId);
         mvc.perform(post("/api/inning-records").with(as(user)).contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(input(gameId, 1, NOW))))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RECORDING_DATE_NOT_TODAY"));
     }

@@ -217,3 +217,34 @@ test("production cadence waits for the last long-running game and all final chec
   assert.deepEqual(calls.slice(-3), [5, 15, 30].map(x => lastFinishedAt + x * minute));
   assert.ok((await state.getJson("LATEST#2026-08-26")).games.every(g => g.status === "FINISHED"));
 });
+
+test("a withdrawn postseason date publishes the revised month and stops only before play", async () => {
+  for (const scenario of ["complete", "partial", "played"]) {
+    let clock = Date.parse("2026-08-26T18:30:00+09:00");
+    let schedules = 0;
+    let scores = 0;
+    const publisher = new MemoryPublisher();
+    const state = new MemoryStateStore();
+    const result = await runGameWindow({
+      config: { polling: { ...config().polling, scheduleRefreshMs: 10 } },
+      source: {
+        kind: "fixture",
+        fetchSchedule: async () => {
+          const games = ++schedules === 1 ? [{ ...game("SCHEDULED", "2026-08-26T18:30:00+09:00"), gameType: "PLAYOFF" }] : [];
+          return { games, anomalies: [], monthlySchedule: { games, anomalies: [],
+            scheduleCoverage: scenario === "partial" ? [] : [{ gameType: "PLAYOFF", observedAt: new Date(clock).toISOString() }] } };
+        },
+        fetchScoreboard: async () => ({ games: ++scores === 1 && scenario === "played"
+          ? [{ ...game("SUSPENDED", "2026-08-26T18:30:00+09:00"), gameType: "PLAYOFF" }] : [], anomalies: [] }),
+        getMetrics: () => ({ logicalRequests: schedules + scores, attempts: schedules + scores }),
+      },
+      state, publisher, dateKey: "2026-08-26", now: () => clock,
+      sleep: async ms => { clock += ms; },
+    });
+    assert.equal(result.reason, scenario === "complete" ? "schedule-withdrawn" : "hard-timeout");
+    const month = await state.getJson("SCHEDULE#MONTH#2026-08");
+    assert.deepEqual(month.games, []);
+    assert.equal(month.scheduleCoverage.length, scenario === "partial" ? 0 : 1);
+    assert.ok(publisher.messages.length >= 2);
+  }
+});

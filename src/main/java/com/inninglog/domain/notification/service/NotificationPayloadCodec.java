@@ -35,11 +35,17 @@ public class NotificationPayloadCodec {
                 outbox.getNotificationType(),
                 outbox.getTitle(),
                 outbox.getBody(),
-                decodeData(outbox.getNotificationType(), outbox.getDataJson()));
+                decodeData(outbox.getNotificationType(), outbox.getDataJson(), outbox.getUserId()));
     }
 
     public Map<String, String> decodeData(NotificationType type, String dataJson) {
         return links.forNotification(type, decodeData(dataJson));
+    }
+
+    public Map<String, String> decodeData(NotificationType type, String dataJson, long recipientUserId) {
+        var data = new java.util.HashMap<>(decodeData(type, dataJson));
+        if (type == NotificationType.TIMELINE_COMMENT) data.put("recipientUserId", Long.toString(recipientUserId));
+        return Map.copyOf(data);
     }
 
     public Map<String, String> decodeData(String dataJson) {

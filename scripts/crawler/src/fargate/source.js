@@ -71,6 +71,7 @@ export function stampPageObservation(result, page, observedAt) {
   const timestamp = new Date(observedAt).toISOString();
   return {
     ...result,
+    scheduleCoverage: result.coveredGameTypes?.map(gameType => ({ gameType, observedAt: timestamp })) ?? [],
     games: result.games.map((game) => ({
       ...game,
       meta: {
@@ -334,7 +335,9 @@ export function createKboPageSource(config, dependencies = {}) {
       if ((games.length === 0 && anomalies.length > 0) || games.length > 10) {
         throw new KboRequestError("Invalid target-date schedule rows", "KBO_PAGE_SCHEMA_MISMATCH", { anomalies });
       }
-      return month;
+      const types = series === "0,9,6" ? ["REGULAR"] : series === "1" ? ["EXHIBITION"]
+        : series === "3,4,5,7" ? ["WILDCARD", "SEMI_PLAYOFF", "PLAYOFF", "KOREAN_SERIES"] : [];
+      return { ...month, coveredGameTypes: month.anomalies.length === 0 ? types : [] };
     });
   }
 
@@ -347,19 +350,10 @@ export function createKboPageSource(config, dependencies = {}) {
       || cached?.result.deferredGames?.some(game => game.date === dateKey);
     const refreshDue = cached && (options.includeNextMonth || (refreshToday && activeToday))
       && now() - cached.observedAt >= config.polling.scheduleRefreshMs;
-    if (cached?.checkedDate === dateKey && !refreshDue) return cached.result;
+    if (cached?.checkedDate === dateKey && Array.isArray(cached.result.scheduleCoverage) && !refreshDue) return cached.result;
     const result = await fetchSeriesMonth(month === dateKey.slice(0, 7) ? dateKey : `${month}-01`, options, "3,4,5,7");
-    // A formerly announced game replaced explicitly by an off-day is no longer scheduled.
-    // Never infer a cancellation merely from a missing or malformed response row.
-    if (result.anomalies.length === 0) for (const old of cached?.result.games ?? []) {
-      if (old.status !== "FINISHED" && result.offDays.includes(old.date)
-        && !result.games.some(game => game.date === old.date)) {
-        result.games.push({ ...old, status: "CANCELLED", statusText: "포스트시즌 이동일로 일정 변경",
-          score: { away: null, home: null }, inning: null, half: null,
-          meta: { ...old.meta, scheduleObservedAt: new Date(now()).toISOString(),
-            resultObservedAt: new Date(now()).toISOString(), resultSource: "SCHEDULE" } });
-      }
-    }
+    // Publish the actual complete list. The backend retires absent fixtures using
+    // explicit per-series coverage; never invent a cancellation from an off-day.
     await state.putJson(key, { checkedDate: dateKey, observedAt: now(), result }, Math.floor(now() / 1000) + 172800);
     return result;
   }
@@ -372,14 +366,20 @@ export function createKboPageSource(config, dependencies = {}) {
     const post = await postseasonMonth(month, dateKey, options, true);
     const result = { ...regular, games: [...regular.games, ...post.games],
       anomalies: [...regular.anomalies, ...post.anomalies], deferredGames: post.deferredGames,
-      offDays: post.offDays, additionalMonths: [] };
+      offDays: post.offDays, scheduleCoverage: [...regular.scheduleCoverage, ...post.scheduleCoverage], additionalMonths: [] };
     const detected = post.games.length + post.deferredGames.length > 0;
-    if (options.includeNextMonth && detected) {
+    const monthEnd = Number(dateKey.slice(8)) >= 25;
+    if (options.includeNextMonth && (detected || monthEnd)) {
       const next = new Date(`${month}-01T00:00:00Z`);
       next.setUTCMonth(next.getUTCMonth() + 1);
       const nextMonth = next.toISOString().slice(0, 7);
       const upcoming = await postseasonMonth(nextMonth, dateKey, options, false);
-      if (upcoming.games.length || upcoming.deferredGames.length) result.additionalMonths.push(upcoming);
+      if (monthEnd) {
+        const nextRegular = await fetchSeriesMonth(`${nextMonth}-01`, options, "0,9,6");
+        result.additionalMonths.push({ ...upcoming, games: [...nextRegular.games, ...upcoming.games],
+          anomalies: [...nextRegular.anomalies, ...upcoming.anomalies],
+          scheduleCoverage: [...nextRegular.scheduleCoverage, ...upcoming.scheduleCoverage] });
+      } else result.additionalMonths.push(upcoming);
     }
     log({ level: "info", event: "postseason_discovery", month, detected,
       confirmedGames: post.games.length, deferredGames: post.deferredGames.length,
@@ -396,7 +396,7 @@ export function createKboPageSource(config, dependencies = {}) {
       const month = await fetchMonth(dateKey, options);
       const games = month.games.filter(game => game.date === dateKey);
       const anomalies = month.anomalies.filter(entry => entry.date === dateKey);
-      return { games, anomalies, pageDate: month.pageDate };
+      return { games, anomalies, pageDate: month.pageDate, monthlySchedule: month };
     },
     async fetchScoreboard(dateKey, options = {}) {
       return fetchParsed("scoreboard", dateKey, options,

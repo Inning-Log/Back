@@ -29,7 +29,7 @@ function snapshot({ config, source, dateKey, mode, observedAt, games, anomalies 
   };
 }
 
-function monthlyScheduleSnapshot({ source, monthKey, observedAt, games, anomalies, deferredGames = [], offDays = [] }) {
+function monthlyScheduleSnapshot({ source, monthKey, observedAt, games, anomalies, deferredGames = [], offDays = [], scheduleCoverage = [] }) {
   return {
     schemaVersion: 1,
     source: source.kind === "fixture" ? "fixture-kbo-pages" : "kbo-pages",
@@ -41,6 +41,7 @@ function monthlyScheduleSnapshot({ source, monthKey, observedAt, games, anomalie
     anomalies,
     deferredGames,
     offDays,
+    scheduleCoverage,
     requestMetrics: source.getMetrics(),
   };
 }
@@ -153,6 +154,7 @@ export async function runPlanDay(context) {
         anomalies: monthlySchedule.anomalies,
         deferredGames: monthlySchedule.deferredGames,
         offDays: monthlySchedule.offDays,
+        scheduleCoverage: monthlySchedule.scheduleCoverage,
       });
     const monthPublish = monthValue == null
       ? null
@@ -240,6 +242,10 @@ export async function runGameWindow(context) {
   let nextLeaseRenewAt = startedAt + config.polling.leaseRenewMs;
   const fetchOptions = recoveryOptions({ state, leaseKey, owner, now, signal, deadline, ttlMs: leaseTtlMs });
   const log = context.log ?? (() => {});
+  const saveSchedule = async (result) => {
+    if (result.monthlySchedule) await saveMonthSchedule({ state, publisher,
+      value: monthlyScheduleSnapshot({ source, monthKey: dateKey.slice(0, 7), observedAt: now(), ...result.monthlySchedule }), nowMs: now() });
+  };
   const saveObservation = async (value) => {
     const publish = await saveAndPublish({ state, publisher, value, nowMs: now() });
     log({ level: value.anomalies.length ? "warn" : "info", event: "snapshot_saved",
@@ -251,6 +257,7 @@ export async function runGameWindow(context) {
   };
   try {
     let scheduleResult = await source.fetchSchedule(dateKey, fetchOptions);
+    await saveSchedule(scheduleResult);
     let scoreboardResult = { games: [], anomalies: [] };
     let combined = mergeKboPages(scheduleResult.games, scoreboardResult.games);
     let value = snapshot({
@@ -276,6 +283,8 @@ export async function runGameWindow(context) {
     }
 
     let nextScheduleAt = now() + config.polling.scheduleRefreshMs;
+    const plannedTypes = new Set(scheduleResult.games.map(game => game.gameType));
+    let playObserved = combined.games.some(game => ["LIVE", "SUSPENDED", "FINISHED"].includes(game.status));
     let nextScoreboardAt = Math.max(now(), windowStart(earliest, config));
     let terminalDetectedAt = null;
     let completedFinalChecks = 0;
@@ -304,6 +313,7 @@ export async function runGameWindow(context) {
 
       if (current >= nextScheduleAt) {
         scheduleResult = await source.fetchSchedule(dateKey, fetchOptions);
+        await saveSchedule(scheduleResult);
         nextScheduleAt = now() + config.polling.scheduleRefreshMs;
         if (!scoreboardPolled) {
           const revisedEarliest = earliestScheduledAt(activeGames(scheduleResult.games));
@@ -385,7 +395,17 @@ export async function runGameWindow(context) {
         await saveObservation(value);
         const scheduleCancelled = scheduleResult.games.length > 0
           && scheduleResult.games.every((game) => ["CANCELLED", "POSTPONED"].includes(game.status));
-        const liveObserved = scoreboardResult.games.some((game) => game.status === "LIVE");
+        const liveObserved = combined.games.some((game) => ["LIVE", "SUSPENDED"].includes(game.status));
+        playObserved ||= combined.games.some(game => ["LIVE", "SUSPENDED", "FINISHED"].includes(game.status));
+        // KBO can remove a postponed date entirely. Only a complete series schedule
+        // may end a pregame window this way; missing live cards never imply cancellation.
+        const coveredTypes = new Set((scheduleResult.monthlySchedule?.scheduleCoverage ?? []).map(item => item.gameType));
+        if (!playObserved && combined.games.length === 0 && !value.anomalies.length
+            && !scheduleResult.monthlySchedule?.anomalies?.length
+            && [...plannedTypes].every(type => coveredTypes.has(type))) {
+          return { skipped: false, reason: "schedule-withdrawn", date: dateKey,
+            gameCount: 0, requestMetrics: source.getMetrics() };
+        }
         if (scheduleCancelled && !liveObserved) {
           return {
             skipped: false,

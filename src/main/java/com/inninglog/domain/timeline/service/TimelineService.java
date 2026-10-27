@@ -33,15 +33,17 @@ public class TimelineService {
     private final Clock clock;
     private final ObjectMapper mapper;
     private final VideoService videos;
+    private final TimelineDayPolicy days;
 
     public TimelineService(TimelineRepository records, GameRepository games, GameUserAccess access,
-                           Clock clock, ObjectMapper mapper, VideoService videos) {
+                           Clock clock, ObjectMapper mapper, VideoService videos, TimelineDayPolicy days) {
         this.records = records;
         this.games = games;
         this.access = access;
         this.clock = clock;
         this.mapper = mapper;
         this.videos = videos;
+        this.days = days;
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -64,12 +66,13 @@ public class TimelineService {
         var myLog = own ? log : activeLog(viewer.getId(), gameId).orElse(null);
         var myRecording = myLog == null ? GameRecordingSummary.EMPTY : games.recordingSummaryForGame(viewer.getId(), gameId);
         long count = own ? myRecording.recordCount() : log == null ? 0 : records.count(log.id());
+        var window = days.current();
         return new TimelineResponse(today(), "Asia/Seoul", owner,
                 GameResponse.from(game, myLog, viewer.getFavoriteTeam().getId(), myRecording), viewing,
                 game.currentInning(), game.currentHalf(), own && writableGame && log != null,
                 own && writableGame && log == null, count,
                 page.stream().map(InningRecordResponse::from).toList(),
-                hasMore ? encodeCursor(page.getLast()) : null);
+                hasMore ? encodeCursor(page.getLast()) : null, window.timelineDate(), window.nextResetAt());
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -82,10 +85,11 @@ public class TimelineService {
         List<Long> ids = new ArrayList<>();
         ids.add(viewer.getId());
         friends.forEach(friend -> ids.add(friend.userId()));
-        var byUser = records.profileGames(ids, today());
+        var window = days.current();
+        var byUser = records.profileGames(ids, window.timelineDate(), today());
         return new TimelineProfilesResponse(today(), profile(me, byUser.getOrDefault(me.userId(), List.of())),
                 friends.stream().map(friend -> profile(friend, byUser.getOrDefault(friend.userId(), List.of()))).toList(),
-                hasMore ? friends.getLast().userId() : null);
+                hasMore ? friends.getLast().userId() : null, window.timelineDate(), window.nextResetAt());
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -113,13 +117,14 @@ public class TimelineService {
         }
         games.lockGame(request.gameId());
         Game game = requireGame(request.gameId());
-        if (!game.gameDate().equals(today()))
-            throw GameException.conflict("RECORDING_DATE_NOT_TODAY", "새 기록은 한국 시간 기준 당일 경기만 가능합니다.");
+        if (!days.recordableDate(game.gameDate()))
+            throw GameException.conflict("RECORDING_DATE_NOT_TODAY", "타임라인 기록 가능 시간이 지났습니다.");
         if (!recordableToday(game))
             throw GameException.conflict("GAME_NOT_RECORDABLE", "취소되거나 연기된 경기입니다.");
         Instant now = clock.instant();
-        if (!captured.atZone(GameUserAccess.KST).toLocalDate().equals(game.gameDate()) || captured.isAfter(now))
-            throw new IllegalArgumentException("촬영 시각은 해당 경기일이며 현재 시각 이후일 수 없습니다.");
+        if (captured.isBefore(game.gameDate().atStartOfDay(GameUserAccess.KST).toInstant())
+                || !captured.isBefore(days.boundary(game.gameDate().plusDays(1))) || captured.isAfter(now))
+            throw new IllegalArgumentException("촬영 시각은 해당 경기의 기록 가능 시간 안이며 현재 시각 이후일 수 없습니다.");
         // A state remains valid until the next change. This also supports delayed uploads after the game ends.
         var state = games.stateAtOrBefore(game.id(), captured)
                 .filter(snapshot -> (snapshot.status() == GameStatus.LIVE || snapshot.status() == GameStatus.FINISHED)
@@ -170,7 +175,8 @@ public class TimelineService {
     }
 
     private boolean recordableToday(Game game) {
-        return game.gameDate().equals(today()) && game.status() != GameStatus.CANCELED && game.status() != GameStatus.POSTPONED;
+        return days.recordableDate(game.gameDate()) && games.scheduleActive(game.id())
+                && game.status() != GameStatus.CANCELED && game.status() != GameStatus.POSTPONED;
     }
 
     private LocalDate today() { return LocalDate.now(clock.withZone(GameUserAccess.KST)); }

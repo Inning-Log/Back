@@ -4,6 +4,7 @@ import com.inninglog.domain.game.dto.*;
 import com.inninglog.domain.game.exception.GameException;
 import com.inninglog.domain.game.model.*;
 import com.inninglog.domain.game.repository.GameRepository;
+import com.inninglog.domain.timeline.service.TimelineDayPolicy;
 import com.inninglog.domain.user.entity.User;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -20,8 +21,10 @@ public class GameService {
     private final GameRepository games;
     private final GameUserAccess access;
     private final Clock clock;
-    public GameService(GameRepository games, GameUserAccess access, Clock clock) {
+    private final TimelineDayPolicy days;
+    public GameService(GameRepository games, GameUserAccess access, Clock clock, TimelineDayPolicy days) {
         this.games = games; this.access = access; this.clock = clock;
+        this.days = days;
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -59,9 +62,9 @@ public class GameService {
         }
         games.lockGame(request.gameId());
         Game game = requireGame(request.gameId());
-        if (!game.gameDate().equals(today()))
-            throw GameException.conflict("RECORDING_DATE_NOT_TODAY", "관람 등록은 한국 시간 기준 당일 경기만 가능합니다.");
-        if (game.status() == GameStatus.CANCELED || game.status() == GameStatus.POSTPONED)
+        if (!days.recordableDate(game.gameDate()))
+            throw GameException.conflict("RECORDING_DATE_NOT_TODAY", "타임라인 관람 등록 가능 시간이 지났습니다.");
+        if (!games.scheduleActive(game.id()) || game.status() == GameStatus.CANCELED || game.status() == GameStatus.POSTPONED)
             throw GameException.conflict("GAME_NOT_RECORDABLE", "취소되거나 연기된 경기입니다.");
         if (!game.includesTeam(request.cheeringTeamId()))
             throw new IllegalArgumentException("응원팀은 해당 경기의 홈팀 또는 원정팀이어야 합니다.");

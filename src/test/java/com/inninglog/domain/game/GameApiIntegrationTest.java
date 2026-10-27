@@ -145,7 +145,7 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
     @Test
     void registrationRejectsWrongDateTeamCancelledGameAndForeignOwner() throws Exception {
         var user = user(); var other = user();
-        long previous = ingest(game(TODAY.minusDays(1),"FINISHED",5,3));
+        long previous = ingest(game(TODAY.minusDays(2),"FINISHED",5,3));
         mvc.perform(post("/api/user-game-logs").with(as(user)).contentType(MediaType.APPLICATION_JSON).content(registration(previous,"STADIUM")))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RECORDING_DATE_NOT_TODAY"));
         long game = ingest(game(TODAY,"CANCELED",null,null));
