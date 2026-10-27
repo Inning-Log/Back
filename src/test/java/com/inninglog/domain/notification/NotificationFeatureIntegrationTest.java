@@ -33,7 +33,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.notifications.frontend-origin=https://inning-log.vercel.app")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class NotificationFeatureIntegrationTest {
@@ -92,6 +92,7 @@ class NotificationFeatureIntegrationTest {
                 .andExpect(jsonPath("$.items[0].id").value(thirdId))
                 .andExpect(jsonPath("$.items[1].id").value(secondId))
                 .andExpect(jsonPath("$.items[0].data.type").value("RECORD_REMINDER"))
+                .andExpect(jsonPath("$.items[0].data.audienceUserId").value(owner.getId().toString()))
                 .andExpect(jsonPath("$.nextCursor").value(secondId))
                 .andExpect(jsonPath("$.hasNext").value(true))
                 .andExpect(jsonPath("$.unreadCount").value(3));
@@ -126,6 +127,30 @@ class NotificationFeatureIntegrationTest {
                         .header("Authorization", "Bearer " + ownerToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.unreadCount").value(0));
+    }
+
+    @Test
+    void commentInboxUsesActualRecipientForFrontFallbackEvenForOldStoredEntries() throws Exception {
+        User recipient = createUser("comment-inbox-recipient@example.com");
+        var storedData = Map.of("ownerUserId", recipient.getId().toString(), "actorUserId", "999",
+                "gameId", "2", "recordId", "3", "videoId", "4", "commentId", "5",
+                "audienceUserId", "888", "recipientUserId", "888");
+        Long id = transactionTemplate.execute(ignored -> notificationQueueService.enqueueToUser(
+                "old-comment-inbox", recipient.getId(),
+                new PushNotification(NotificationType.TIMELINE_COMMENT, "댓글", "body", storedData)));
+        String storedJson = notificationRepository.findById(id).orElseThrow().getDataJson();
+
+        mockMvc.perform(get("/api/notifications").header("Authorization", "Bearer " + accessToken(recipient)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].data.audienceUserId").value(recipient.getId().toString()))
+                .andExpect(jsonPath("$.items[0].data.recipientUserId").value(recipient.getId().toString()))
+                .andExpect(jsonPath("$.items[0].data.ownerUserId").value(recipient.getId().toString()))
+                .andExpect(jsonPath("$.items[0].data.actorUserId").value("999"))
+                .andExpect(jsonPath("$.items[0].data.link").value(
+                        "https://inning-log.vercel.app/timeline/history/2?recordId=3&videoId=4&commentId=5"))
+                .andExpect(jsonPath("$.unreadCount").value(1));
+        assertThat(notificationRepository.findById(id).orElseThrow().getDataJson()).isEqualTo(storedJson);
+        assertThat(notificationRepository.findById(id).orElseThrow().getReadAt()).isNull();
     }
 
     @Test

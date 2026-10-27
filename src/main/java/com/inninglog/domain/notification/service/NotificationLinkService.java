@@ -52,7 +52,32 @@ public class NotificationLinkService {
 
     /** Apply the current destination to older inbox entries and queued pushes as well. */
     public Map<String, String> forNotification(NotificationType type, Map<String, String> data) {
-        return type == NotificationType.FRIEND_ACCEPTED ? friendshipData(data, true) : data;
+        return switch (type) {
+            case FRIEND_ACCEPTED -> friendshipData(data, true);
+            case TIMELINE_COMMENT -> commentData(data);
+            default -> data;
+        };
+    }
+
+    private Map<String, String> commentData(Map<String, String> data) {
+        try {
+            String link = video(positiveId(data, "gameId"), positiveId(data, "recordId"),
+                    positiveId(data, "videoId"), positiveId(data, "commentId"),
+                    positiveId(data, "ownerUserId"), positiveId(data, "recipientUserId"));
+            if (link == null) return data;
+            Map<String, String> result = new LinkedHashMap<>(data);
+            result.put("link", link);
+            return result;
+        } catch (NumberFormatException invalidOrMissingId) {
+            // Incomplete old entries retain their original link and metadata for client fallback.
+            return data;
+        }
+    }
+
+    private static long positiveId(Map<String, String> data, String key) {
+        long id = Long.parseLong(data.get(key));
+        if (id <= 0) throw new NumberFormatException("Invalid notification identifier");
+        return id;
     }
 
     private String acceptedFriendPath(Map<String, String> data) {
