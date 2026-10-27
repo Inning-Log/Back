@@ -124,6 +124,24 @@ class OpenApiDocumentationIntegrationTest {
         }
     }
 
+    @Test
+    void timelineResetAndNotificationRecipientContractsArePublished() throws Exception {
+        JsonNode doc = document();
+        JsonNode schemas = doc.path("components").path("schemas");
+        for (String name : List.of("TimelineResponse", "TimelineProfilesResponse")) {
+            JsonNode properties = schemas.path(name).path("properties");
+            assertThat(properties.path("today").path("description").asText()).contains("KST", "달력");
+            assertThat(properties.path("timelineDate").path("format").asText()).isEqualTo("date");
+            assertThat(properties.path("nextResetAt").path("format").asText()).isEqualTo("date-time");
+        }
+        assertThat(schemas.path("NotificationItemResponse").path("properties").path("data")
+                .path("description").asText()).contains("audienceUserId", "recipientUserId", "ownerUserId", "actorUserId", "HTTPS");
+        assertThat(doc.path("paths").path("/api/timelines/profiles").path("get").path("description").asText())
+                .contains("timelineDate", "nextResetAt", "전날", "games");
+        assertThat(doc.path("paths").path("/api/inning-records").path("post").path("description").asText())
+                .contains("리셋 전 전날", "리셋 후에도 기존 기록");
+    }
+
     private JsonNode document() throws Exception {
         return objectMapper.readTree(mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());

@@ -37,8 +37,42 @@ class NotificationPayloadCodecTest {
     void oldCommentNotificationsGetActualRecipientWithoutConfusingVideoOwnerOrActor() {
         String stored = codec.encode(Map.of("ownerUserId","8","actorUserId","9","videoId","10"));
         assertThat(codec.decodeData(NotificationType.TIMELINE_COMMENT,stored,7))
-                .containsEntry("recipientUserId","7").containsEntry("ownerUserId","8").containsEntry("actorUserId","9");
+                .containsEntry("recipientUserId","7").containsEntry("audienceUserId","7")
+                .containsEntry("ownerUserId","8").containsEntry("actorUserId","9");
         var outbox = new NotificationOutbox("comment:10",1L,7L,NotificationType.TIMELINE_COMMENT,"reply","body",stored,Instant.now());
         assertThat(codec.decode(outbox).data()).containsEntry("recipientUserId","7");
+    }
+
+    @Test
+    void commentInboxAndQueuedPushRepairStaleIdentityAndOwnerRouteWithoutChangingStoredData() {
+        String stored = codec.encode(Map.of("ownerUserId", "7", "actorUserId", "9",
+                "recipientUserId", "999", "audienceUserId", "999", "gameId", "2",
+                "recordId", "3", "videoId", "4", "commentId", "5",
+                "link", "https://inning-log.vercel.app/timeline/9?gameId=2"));
+        var outbox = new NotificationOutbox("comment:5", 1L, 7L, NotificationType.TIMELINE_COMMENT,
+                "댓글", "body", stored, Instant.now());
+        var inbox = codec.decodeData(NotificationType.TIMELINE_COMMENT, stored, 7);
+        assertThat(inbox).containsEntry("audienceUserId", "7").containsEntry("recipientUserId", "7")
+                .containsEntry("ownerUserId", "7").containsEntry("actorUserId", "9")
+                .containsEntry("link", "https://inning-log.vercel.app/timeline/history/2?recordId=3&videoId=4&commentId=5");
+        assertThat(codec.decode(outbox).data()).containsAllEntriesOf(inbox);
+        assertThat(outbox.getDataJson()).isEqualTo(stored);
+    }
+
+    @Test
+    void replyRecipientUsesVideoOwnersTimelineEvenWhenActorIsSomeoneElse() {
+        String stored = codec.encode(Map.of("ownerUserId", "8", "actorUserId", "9",
+                "gameId", "2", "recordId", "3", "videoId", "4", "commentId", "5"));
+        assertThat(codec.decodeData(NotificationType.TIMELINE_COMMENT, stored, 7))
+                .containsEntry("link", "https://inning-log.vercel.app/timeline/8?gameId=2&recordId=3&videoId=4&commentId=5")
+                .containsEntry("audienceUserId", "7").containsEntry("recipientUserId", "7");
+    }
+
+    @Test
+    void nonCommentInboxAlsoUsesActualAudienceWithoutInventingCommentMetadata() {
+        String stored = codec.encode(Map.of("audienceUserId", "999", "gameId", "2"));
+        assertThat(codec.decodeData(NotificationType.GAME_INNING_STARTED, stored, 7))
+                .containsEntry("audienceUserId", "7").containsEntry("gameId", "2")
+                .doesNotContainKeys("recipientUserId", "ownerUserId");
     }
 }

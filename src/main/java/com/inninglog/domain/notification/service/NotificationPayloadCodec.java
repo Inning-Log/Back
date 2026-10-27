@@ -43,9 +43,11 @@ public class NotificationPayloadCodec {
     }
 
     public Map<String, String> decodeData(NotificationType type, String dataJson, long recipientUserId) {
-        var data = new java.util.HashMap<>(decodeData(type, dataJson));
+        var data = new java.util.HashMap<>(decodeData(dataJson));
+        // Inbox and push consumers use the same recipient identity, including historical entries.
+        data.put("audienceUserId", Long.toString(recipientUserId));
         if (type == NotificationType.TIMELINE_COMMENT) data.put("recipientUserId", Long.toString(recipientUserId));
-        return Map.copyOf(data);
+        return Map.copyOf(links.forNotification(type, data));
     }
 
     public Map<String, String> decodeData(String dataJson) {

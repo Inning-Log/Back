@@ -2,10 +2,31 @@ package com.inninglog.domain.notification.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.inninglog.domain.notification.entity.NotificationType;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class NotificationLinkServiceTest {
+    @Test
+    void incompleteOrInvalidCommentIdentityPreservesOriginalLink() {
+        var links = new NotificationLinkService("https://inning-log.vercel.app");
+        for (String value : new String[]{"0", "-1", "5?gameId=2", "9223372036854775808"}) {
+            var data = Map.of("gameId", "2", "recordId", "3", "videoId", "4", "commentId", value,
+                    "ownerUserId", "8", "recipientUserId", "7", "link", "https://inning-log.vercel.app/home/notifications");
+            assertThat(links.forNotification(NotificationType.TIMELINE_COMMENT, data)).isEqualTo(data);
+        }
+        var incomplete = Map.of("ownerUserId", "8", "recipientUserId", "7");
+        assertThat(links.forNotification(NotificationType.TIMELINE_COMMENT, incomplete)).isEqualTo(incomplete);
+    }
+
+    @Test
+    void commentLinkIsNotFabricatedWithoutConfiguredOrigin() {
+        var data = Map.of("gameId", "2", "recordId", "3", "videoId", "4", "commentId", "5",
+                "ownerUserId", "8", "recipientUserId", "7");
+        assertThat(new NotificationLinkService("").forNotification(NotificationType.TIMELINE_COMMENT, data))
+                .isEqualTo(data);
+    }
+
     @Test
     void followsExistingFrontRoutesAndCarriesIndividualVideoIdentity() {
         var links = new NotificationLinkService("https://inning-log.vercel.app/");
