@@ -25,14 +25,14 @@ import org.springframework.web.bind.annotation.*;
         content = @Content)
 @ApiResponse(responseCode = "404", description = "경기 또는 본인 기록 없음",
         content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
-@ApiResponse(responseCode = "409", description = "당일 경기 아님, 취소 경기, 기존 기록 충돌 또는 온보딩 미완료",
+@ApiResponse(responseCode = "409", description = "기록 가능 시간 만료, 취소 경기, 기존 기록 충돌 또는 온보딩 미완료",
         content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
 public class UserGameLogController {
     private final GameService service;
     public UserGameLogController(GameService service) { this.service = service; }
 
     @PostMapping
-    @Operation(summary = "직관·집관 등록", description = "KST 당일 경기만 최초 등록할 수 있습니다. 동일 내용 재요청과 삭제 기록 복원은 같은 ID를 반환합니다.")
+    @Operation(summary = "직관·집관 등록", description = "KST 당일 경기와 리그 공통 리셋 전의 전날 경기를 등록할 수 있습니다. 리셋은 당일 가장 이른 경기 시작 시각이며, 모든 팀이 쉬면 18:30입니다. 동일 내용 재요청과 삭제 기록 복원은 같은 ID를 반환합니다.")
     @ApiResponse(responseCode = "201", description = "신규 등록")
     @ApiResponse(responseCode = "200", description = "기존 기록 또는 복원")
     public ResponseEntity<UserGameLogResponse> create(JwtAuthenticationToken auth, @Valid @RequestBody CreateUserGameLogRequest request) {

@@ -255,10 +255,12 @@ export function normalizeStatus(value) {
   if (exact[key]) return exact[key];
 
   if (/(취소|노게임)/.test(text)) return "CANCELLED";
+  // KBO's schedule uses these standalone reasons without the word '취소'.
+  if (/^그라운드\s*사정$/.test(text)) return "CANCELLED";
   if (/(종료|경기끝|완료|콜드게임)/.test(text)) return "FINISHED";
   if (/(중단|서스펜디드)/.test(text)) return "SUSPENDED";
   if (/(연기|순연)/.test(text)) return "POSTPONED";
-  if (/(지연|대기중|우천대기)/.test(text)) return "DELAYED";
+  if (/(지연|대기)/.test(text)) return "DELAYED";
   if (/(경기중|진행중|중계중|현재)/.test(text)) return "LIVE";
   if (/(예정|경기전|시작전|미정)/.test(text)) return "SCHEDULED";
   return "UNKNOWN";

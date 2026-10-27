@@ -224,6 +224,7 @@ class VideoCommentApiIntegrationTest extends GameIntegrationSupport {
         assertThat(notificationCount(third)).isZero();
         var data = mapper.readTree(jdbc.queryForObject("select data_json from notifications where user_id = ?", String.class, fixture.friend().getId()));
         assertThat(data.path("parentCommentId").stringValue()).isEqualTo(Long.toString(parent));
+        assertThat(data.path("recipientUserId").stringValue()).isEqualTo(fixture.friend().getId().toString());
         assertThat(data.path("commentId").stringValue()).isEqualTo(Long.toString(id));
         assertThat(data.path("ownerUserId").stringValue()).isEqualTo(fixture.owner().getId().toString());
         assertThat(data.path("link").stringValue()).isEqualTo("https://inning-log.vercel.app/timeline/"

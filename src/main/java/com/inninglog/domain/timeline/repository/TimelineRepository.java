@@ -60,18 +60,19 @@ public class TimelineRepository {
                 """, OWNER_MAPPER, afterUserId, viewerId, viewerId, viewerId, limit);
     }
 
-    public Map<Long, List<GameSummary>> profileGames(List<Long> userIds, LocalDate date) {
+    public Map<Long, List<GameSummary>> profileGames(List<Long> userIds, LocalDate from, LocalDate until) {
         if (userIds.isEmpty()) return Map.of();
         String placeholders = String.join(",", Collections.nCopies(userIds.size(), "?"));
         List<Object> args = new ArrayList<>(userIds);
-        args.add(date);
+        args.add(from);
+        args.add(until);
         Map<Long, List<GameSummary>> result = new HashMap<>();
         jdbc.query("""
                 select l.user_id, l.game_id, l.viewing_type, count(r.id) total
                   from user_game_logs l join games g on g.id = l.game_id
                   left join inning_records r on r.user_game_log_id = l.id and r.deleted_at is null
                  where l.deleted_at is null and l.user_id in (
-                """ + placeholders + ") and g.game_date = ? group by l.user_id, l.game_id, l.viewing_type order by l.game_id",
+                """ + placeholders + ") and g.game_date >= ? and g.game_date <= ? and g.schedule_active = true group by l.user_id, l.game_id, l.viewing_type order by l.game_id",
                 rs -> {
                     result.computeIfAbsent(rs.getLong("user_id"), key -> new ArrayList<>()).add(
                             new GameSummary(rs.getLong("game_id"), ViewingType.valueOf(rs.getString("viewing_type")), rs.getLong("total")));

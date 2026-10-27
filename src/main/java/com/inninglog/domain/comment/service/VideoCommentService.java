@@ -147,6 +147,7 @@ public class VideoCommentService {
         data.put("recordId", Long.toString(video.recordId()));
         data.put("gameId", Long.toString(video.gameId()));
         data.put("ownerUserId", Long.toString(video.ownerId()));
+        data.put("recipientUserId", Long.toString(recipient));
         data.put("commentId", Long.toString(comment.id()));
         data.put("actorUserId", Long.toString(comment.authorId()));
         boolean reply = comment.parentCommentId() != null;

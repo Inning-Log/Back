@@ -34,12 +34,12 @@ async function runtime(date, responses = {}) {
 }
 
 test("no postseason: one daily discovery, no next-month query, no realtime task", async () => {
-  const ctx = await runtime("2026-08-26");
+  const ctx = await runtime("2026-08-20");
   const planned = await runPlanDay(ctx);
   assert.equal(planned.activeGameCount, 0);
   assert.equal(ctx.scheduler.schedules.size, 0);
   assert.deepEqual(ctx.calls, ["2026-08/0,9,6", "2026-08/3,4,5,7"]);
-  await ctx.source.fetchSchedule("2026-08-26");
+  await ctx.source.fetchSchedule("2026-08-20");
   assert.deepEqual(ctx.calls.slice(2), ["2026-08/0,9,6"]);
   assert.equal((await runGameWindow(ctx)).reason, "no-active-games");
 });
@@ -90,11 +90,24 @@ test("later existing planner run discovers newly confirmed teams on the same day
   assert.equal((await ctx.state.getJson("SCHEDULE#MONTH#2026-11")).deferredGames.length, 0);
 });
 
-test("announced game explicitly replaced by off-day becomes canceled without guessing from absence", async () => {
+test("off-day publishes complete postseason coverage without inventing a canceled game", async () => {
   const ctx = await runtime("2026-10-23", { "2026-10/3,4,5,7": payload(october) });
   const old = parseKboScheduleMonthPage(october, "2026-10").games.find(g => g.date === "2026-10-25");
   await ctx.state.putJson("DISCOVERY#POSTSEASON#2026-10", { checkedDate: "2026-10-22", observedAt: 0,
     result: { games: [{ ...old, date: "2026-10-23" }], deferredGames: [] } });
   const today = await ctx.source.fetchSchedule(ctx.dateKey);
-  assert.equal(today.games[0].status, "CANCELLED");
+  assert.deepEqual(today.games, []);
+  assert.ok(today.monthlySchedule.scheduleCoverage.some(c => c.gameType === "PLAYOFF"));
+});
+
+test("legacy deployment cache is refreshed and month-end planning covers next month's regular fixtures", async () => {
+  const ctx = await runtime("2026-10-27", {"2026-10/3,4,5,7":payload(october)});
+  await ctx.state.putJson("DISCOVERY#POSTSEASON#2026-10",{checkedDate:ctx.dateKey,observedAt:ctx.now(),
+    result:{games:[],anomalies:[],offDays:[],deferredGames:[]}});
+  await runPlanDay(ctx);
+  assert.ok(ctx.calls.includes("2026-10/3,4,5,7"));
+  assert.ok(ctx.calls.includes("2026-11/0,9,6"));
+  const month = await ctx.state.getJson("SCHEDULE#MONTH#2026-11");
+  assert.ok(month.scheduleCoverage.some(c=>c.gameType==='REGULAR'));
+  assert.ok(month.scheduleCoverage.some(c=>c.gameType==='KOREAN_SERIES'));
 });

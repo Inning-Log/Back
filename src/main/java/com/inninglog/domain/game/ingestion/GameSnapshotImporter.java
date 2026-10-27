@@ -32,12 +32,14 @@ public class GameSnapshotImporter {
     private final Clock clock;
     private final boolean allowFixtures;
     private final GameNotificationService notifications;
+    private final GameScheduleReconciler schedules;
     private static final Map<String, String> TEAM_CODES = Map.of("KIA", "HT", "DOO", "OB", "SSG", "SK", "WOE", "WO");
 
-    public GameSnapshotImporter(JdbcTemplate jdbc, GameRepository games, ObjectMapper mapper, Clock clock, GameNotificationService notifications,
+    public GameSnapshotImporter(JdbcTemplate jdbc, GameRepository games, ObjectMapper mapper, Clock clock, GameNotificationService notifications, GameScheduleReconciler schedules,
             @Value("${app.games.allow-fixtures:false}") boolean allowFixtures) {
         this.jdbc = jdbc; this.games = games; this.mapper = mapper; this.clock = clock; this.allowFixtures = allowFixtures;
         this.notifications = notifications;
+        this.schedules = schedules;
     }
 
     @Transactional(timeout = 30)
@@ -64,6 +66,7 @@ public class GameSnapshotImporter {
         JsonNode entries = payload.path("games");
         JsonNode anomalies = payload.path("anomalies");
         if (!entries.isArray() || entries.size() > 500 || !anomalies.isArray()) fail("INVALID_SNAPSHOT_COLLECTIONS");
+        var coverage = monthly ? schedules.coverage(payload, observedAt) : List.<GameScheduleReconciler.Coverage>of();
         // Serializes receipts, missing-ID matching and inserts across all server instances.
         jdbc.queryForObject("select id from game_import_lock where id = 1 for update", Integer.class);
         Map<String, Long> teamIds = new HashMap<>();
@@ -75,7 +78,7 @@ public class GameSnapshotImporter {
             incoming.add(game);
         }
         // Compute from normalized content and observation, not the publisher's reusable content hash.
-        String key = digest(mapper.writeValueAsString(List.of(source, mode, date.toString(), observedAt.toString(), incoming, anomalies)));
+        String key = digest(mapper.writeValueAsString(List.of(source, mode, date.toString(), observedAt.toString(), incoming, anomalies, coverage, payload.path("deferredGames"))));
         if (jdbc.queryForObject("select count(*) from game_snapshot_receipts where event_key = ?", Long.class, key) > 0)
             return new ImportResult(true, incoming.size(), key);
         Set<Long> matched = new HashSet<>();
@@ -84,8 +87,10 @@ public class GameSnapshotImporter {
             UpsertResult result = upsert(game, samePairCount);
             long gameId = result.gameId();
             if (!matched.add(gameId)) fail("MULTIPLE_ROWS_MATCH_SAME_GAME");
+            schedules.seen(gameId, game);
             recordEffectiveState(gameId, mode, result.previous());
         }
+        if (monthly && anomalies.isEmpty() && !coverage.isEmpty()) schedules.reconcile(month, coverage, matched, payload.path("deferredGames"));
         String scopeKey = (monthly ? "MONTH:" + month : "DAY:" + date);
         var previous = jdbc.query("select observed_at from game_sync_scopes where scope_key = ?",
                 (rs, index) -> GameRepository.instant(rs, "observed_at"), scopeKey);
@@ -140,7 +145,7 @@ public class GameSnapshotImporter {
             if (!ids.isEmpty()) existing = games.find(ids.getFirst()).orElseThrow();
         }
         if (existing == null) {
-            List<Game> candidates = games.forDate(value.date()).stream()
+            List<Game> candidates = games.includingWithdrawnForDate(value.date()).stream()
                     .filter(g -> g.homeTeam().id() == value.home() && g.awayTeam().id() == value.away())
                     .filter(g -> g.gameType() == value.type() || g.gameType() == GameType.UNKNOWN || value.type() == GameType.UNKNOWN)
                     .filter(g -> g.gameSequence() == null || value.sequence() == null || g.gameSequence().equals(value.sequence()))
@@ -257,14 +262,18 @@ public class GameSnapshotImporter {
             return;
         }
         // A schedule-only pregame row must not undo an observed live/final result.
-        if ((old.status() == GameStatus.LIVE || old.status() == GameStatus.FINISHED)
+        if ((old.status() == GameStatus.LIVE || old.status() == GameStatus.FINISHED || old.status() == GameStatus.SUSPENDED)
                 && (value.status() == GameStatus.SCHEDULED || value.status() == GameStatus.UNKNOWN)) return;
         if (old.status() == GameStatus.FINISHED && value.status() != GameStatus.FINISHED && value.status() != GameStatus.CANCELED) return;
         if (old.status() == GameStatus.FINISHED && (value.homeScore() == null || value.awayScore() == null) && value.status() == GameStatus.FINISHED) return;
+        boolean paused = value.status() == GameStatus.SUSPENDED || value.status() == GameStatus.DELAYED;
         jdbc.update("""
                 update games set status=?,home_score=?,away_score=?,current_inning=?,current_half=?,
                     started_at=?,ended_at=?,result_observed_at=?,result_source=?,updated_at=? where id=?
-                """, value.status().name(), value.homeScore(), value.awayScore(), value.inning(), value.half(),
+                """, value.status().name(), paused ? or(value.homeScore(), old.homeScore()) : value.homeScore(),
+                paused ? or(value.awayScore(), old.awayScore()) : value.awayScore(),
+                paused ? or(value.inning(), old.currentInning()) : value.inning(),
+                paused ? or(value.half(), old.currentHalf()) : value.half(),
                 timestamp(or(value.startedAt(),old.startedAt())), timestamp(or(value.endedAt(),old.endedAt())),
                 timestamp(value.resultObservedAt()), value.resultSource(), timestamp(clock.instant()), old.id());
     }

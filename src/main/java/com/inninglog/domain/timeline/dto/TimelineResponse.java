@@ -18,7 +18,9 @@ public record TimelineResponse(
         boolean requiresViewingRegistration,
         @Schema(description = "타임라인 소유자의 활성 기록 전체 개수") long recordCount,
         List<InningRecordResponse> records,
-        @Schema(description = "다음 페이지 커서. 마지막 페이지면 null", nullable = true) String nextCursor
+        @Schema(description = "다음 페이지 커서. 마지막 페이지면 null", nullable = true) String nextCursor,
+        @Schema(description = "리그 공통 리셋 기준의 타임라인 날짜. 리셋 전에는 KST 전날") LocalDate timelineDate,
+        @Schema(description = "다음 리셋 시각(UTC). 전체 경기 중 가장 이른 시작, 전 경기 없음이면 KST 18:30") java.time.Instant nextResetAt
 ) {
     public record Owner(
             long userId,

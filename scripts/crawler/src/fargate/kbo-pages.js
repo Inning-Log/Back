@@ -99,10 +99,8 @@ function gameNumberFromId(gameId) {
 
 function scheduleStatus(note, scores, hasReview) {
   const text = clean(note);
-  if (/(취소|노게임)/.test(text)) return "CANCELLED";
-  if (/(연기|순연)/.test(text)) return "POSTPONED";
-  if (/(중단|서스펜디드)/.test(text)) return "SUSPENDED";
-  if (/(지연|대기)/.test(text)) return "DELAYED";
+  const status = normalizeStatus(text);
+  if (["CANCELLED", "POSTPONED", "SUSPENDED", "DELAYED"].includes(status)) return status;
   if (scores.away != null && scores.home != null && hasReview) return "FINISHED";
   if (scores.away != null && scores.home != null) return "UNKNOWN";
   return "SCHEDULED";
@@ -232,7 +230,9 @@ export function parseKboScheduleMonthPage(html, targetMonth, options = {}) {
         events: [],
         meta: { provenance: [{ provider: "kbo", page: "schedule", row: rowIndex }] },
       }, { source: "kbo" });
-      games.push(validateIdentity({ ...game, seasonYear: Number(year), gameType, gameSequence: null }, `schedule row ${rowIndex}`));
+      const round = /(?:WC|준PO|PO|KS|한국시리즈|플레이오프|와일드카드)\s*(\d+)차전/i.exec(note)?.[1];
+      games.push(validateIdentity({ ...game, seasonYear: Number(year), gameType, gameSequence: null,
+        postseasonRound: round ? Number(round) : null }, `schedule row ${rowIndex}`));
     } catch (error) {
       anomalies.push({
         type: "INVALID_SCHEDULE_ROW",
@@ -359,7 +359,8 @@ export function parseKboScoreboardPage(html, targetDate, options = {}) {
 
       stage = "status";
       const flagText = clean(card.find(".flag").first().text());
-      const inning = normalizeInning(flagText);
+      const paused = ["SUSPENDED", "DELAYED"].includes(normalizeStatus(flagText));
+      const inning = normalizeInning(paused ? (flagText.match(/\d+\s*(?:회)?\s*[초말]/)?.[0] ?? flagText) : flagText);
       const status = scoreboardStatus(flagText, inning);
       if (status === "UNKNOWN") {
         throw new KboPageSchemaError(`unknown game state in scoreboard card ${cardIndex}: ${flagText}`);
@@ -373,7 +374,7 @@ export function parseKboScoreboardPage(html, targetDate, options = {}) {
       }
       stage = "identity";
       const gameId = cardGameId($, card, targetDate);
-      const hideLiveFields = status !== "LIVE";
+      const hideLiveFields = !["LIVE", "SUSPENDED"].includes(status);
       const game = normalizeGameSnapshot({
         date: targetDate,
         source: { kbo: true, naver: false },
@@ -458,8 +459,11 @@ function identityKey(game) {
 }
 
 function combine(schedule, scoreboard) {
+  const scheduleTime = Date.parse(schedule.meta?.resultObservedAt);
+  const scoreboardTime = Date.parse(scoreboard.meta?.resultObservedAt);
   const scheduleOverridesPregame = ["CANCELLED", "POSTPONED", "DELAYED", "SUSPENDED"].includes(schedule.status)
-    && ["UNKNOWN", "SCHEDULED"].includes(scoreboard.status);
+    && (["UNKNOWN", "SCHEDULED"].includes(scoreboard.status)
+      || (scheduleTime > scoreboardTime && scoreboard.status !== "FINISHED"));
   const resultGame = scheduleOverridesPregame || scoreboard.status === "UNKNOWN" ? schedule : scoreboard;
   return validateIdentity({
     ...schedule,
