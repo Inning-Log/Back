@@ -81,3 +81,14 @@ DB 변경은 `V24__reconcile_schedule_membership.sql`이며 기존 컬럼/테이
 - 크롤러 전체 테스트: 131개 통과.
 - 백엔드 전체 테스트: 262개 통과, 실패/건너뜀 0.
 - PostgreSQL 18.4 별도 검증: 일정 정합성·게임 API·타임라인·댓글·알림 관련 52개 통과. V24 마이그레이션 적용 포함.
+
+## 운영 적용
+
+- 코드 SHA: `a76fa105001f62eaedfdb79e793fc9f355f424e9`.
+- [EC2 배포 실행](https://github.com/Inning-Log/Back/actions/runs/40447369196): 테스트·이미지 빌드·배포 성공. 실행 컨테이너의 SHA, health `UP`, Flyway V24 성공, 운영 OpenAPI의 두 리셋 필드까지 확인했다.
+- 크롤러: `inning-log-crawler:8` → `:9`, 이미지 태그 `a76fa105001f`.
+- 새 계획 태스크 `89dc07ff2c8f44468814d8b4fefe0edc`: 2026-10-27 13:05 KST 실행, 외부 요청 4회, 파싱 이상 0, exit code 0. 10월 48경기(정규 40 + PS 8), 11월 1경기를 수집·발행했다.
+- 매일 06·12·16시 반복 플래너와 당일 경기 수집 예약을 새 revision으로 갱신했다. 플래너 변경 전 입력은 CloudShell의 해당 릴리스 `scripts/crawler/out/releases/a76fa105001f/planner-before.json`에 보관했다.
+- 재수집 후 운영 DB의 10/25(id 154), 10/28(id 156), 10/31(id 158)은 `schedule_active=false`이며, id 154의 관람 등록 2건은 그대로 보존됐다. 10/26 종료 결과와 10/27·29·30·11/1 일정은 활성 상태다.
+- 10월·11월 각각 정규시즌 및 포스트시즌 4종의 관측 기준 10건과, 상대 미정 한국시리즈 시작 시각 7건(11/2·3·5·6·7·9·10)도 DB 반영을 확인했다.
+- [PR #30](https://github.com/Inning-Log/Back/pull/30)은 Draft이며 main에는 아직 병합하지 않았다. main에서 재배포하면 이 수정이 빠질 수 있으므로 다음 운영 릴리스 전에 병합해야 한다.
