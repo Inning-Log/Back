@@ -49,7 +49,7 @@ public class TimelineController {
     }
 
     @GetMapping("/profiles")
-    @Operation(summary = "오늘의 타임라인 프로필", description = "내 프로필과 수락한 친구 목록, 각 사용자의 오늘 관람 경기 ID와 활성 기록 수를 반환합니다. 친구는 userId 순으로 페이지 처리합니다.")
+    @Operation(summary = "현재 타임라인 프로필", description = "내 프로필과 수락한 친구 목록, timelineDate부터 today까지의 관람 경기 ID와 활성 기록 수를 반환합니다. today는 KST 달력 날짜이며 리셋 전 timelineDate는 전날입니다. nextResetAt에 목록을 재조회하고 경기 선택에는 응답의 games를 사용합니다. 친구는 userId 순으로 페이지 처리합니다.")
     public TimelineProfilesResponse profiles(JwtAuthenticationToken auth,
                                              @RequestParam(defaultValue = "0") @PositiveOrZero long afterUserId,
                                              @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit) {

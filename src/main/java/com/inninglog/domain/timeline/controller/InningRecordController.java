@@ -33,7 +33,7 @@ public class InningRecordController {
     public InningRecordController(TimelineService service) { this.service = service; }
 
     @PostMapping
-    @Operation(summary = "이닝 기록 등록", description = "먼저 gameId로 직관·집관을 등록합니다. 같은 이닝의 여러 기록을 허용합니다. clientRecordId(UUID)와 최초 본문을 유지해 재시도합니다. inning·half·recordedAt은 촬영 당시 값이며 저장 시점 값으로 바꾸지 않습니다. 점수는 촬영 시점 이전 서버 관측에서 가져오며 관측 이력이 없으면 null입니다.")
+    @Operation(summary = "이닝 기록 등록", description = "먼저 gameId로 직관·집관을 등록합니다. KST 당일 경기와 리그 공통 리셋 전 전날 경기에서 새 기록을 생성할 수 있습니다. 같은 이닝의 여러 기록을 허용합니다. clientRecordId(UUID)와 최초 본문을 유지해 재시도하며 이미 생성된 동일 요청은 리셋 후에도 기존 기록을 반환합니다. inning·half·recordedAt은 촬영 당시 값이며 저장 시점 값으로 바꾸지 않습니다. 점수는 촬영 시점 이전 서버 관측에서 가져오며 관측 이력이 없으면 null입니다.")
     @ApiResponse(responseCode = "201", description = "신규 기록")
     @ApiResponse(responseCode = "200", description = "동일 요청 재시도")
     public ResponseEntity<InningRecordResponse> create(JwtAuthenticationToken auth, @Valid @RequestBody CreateInningRecordRequest request) {
