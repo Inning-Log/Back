@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/home")
 @Validated
-@Tag(name = "홈", description = "월별 달력과 현재 정규시즌 누적 직관 승률")
+@Tag(name = "홈", description = "월별 달력과 현재 연도의 정규시즌·포스트시즌 직관 승률")
 @ApiResponse(responseCode = "404", description = "사용자 없음",
         content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
 @ApiResponse(responseCode = "200", description = "조회 성공")
@@ -40,6 +40,6 @@ public class HomeController {
     }
 
     @GetMapping("/win-rate")
-    @Operation(summary = "현재 시즌 직관 승률 조회", description = "KST 현재 연도 정규시즌의 직관만 집계합니다. 승/(승+패), 분모가 0이면 null. 달력 조회 월과 독립적입니다.")
+    @Operation(summary = "현재 시즌 직관 승률 조회", description = "KST 현재 연도 STADIUM 등록을 집계합니다. 최상위 필드는 정규시즌이며 postseason은 와일드카드·준플레이오프·플레이오프·한국시리즈의 별도 합계입니다. 본인의 포스트시즌 직관 등록이 없으면 postseason은 null. 각 승률은 승/(승+패), 분모가 0이면 null이며 달력 조회 월과 독립적입니다. 시범경기는 제외합니다.")
     public WinRateResponse winRate(JwtAuthenticationToken auth) { return service.winRate(auth.getName()); }
 }

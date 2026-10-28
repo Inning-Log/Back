@@ -2,6 +2,8 @@ package com.inninglog.domain.home.service;
 
 import com.inninglog.domain.game.dto.GameResponse;
 import com.inninglog.domain.game.model.GameRecordingSummary;
+import com.inninglog.domain.game.model.GameType;
+import com.inninglog.domain.home.dto.PostseasonWinRate;
 import com.inninglog.domain.game.model.UserGameLog;
 import com.inninglog.domain.game.repository.GameRepository;
 import com.inninglog.domain.game.service.GameUserAccess;
@@ -23,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class HomeService {
+    private static final List<GameType> POSTSEASON_TYPES = List.of(GameType.WILDCARD, GameType.SEMI_PLAYOFF,
+            GameType.PLAYOFF, GameType.KOREAN_SERIES);
     private final GameRepository games;
     private final GameUserAccess access;
     private final Clock clock;
@@ -59,7 +63,9 @@ public class HomeService {
         BigDecimal rate = decided == 0 ? null : BigDecimal.valueOf(wins).multiply(BigDecimal.valueOf(100))
                 .divide(BigDecimal.valueOf(decided), 1, RoundingMode.HALF_UP);
         return new WinRateResponse(season, List.of("REGULAR"), "STADIUM", wins + losses + draws + pending + voids + unknown,
-                wins, losses, draws, pending, voids, unknown, games.unclassifiedCount(user.getId(), season), decided, rate, clock.instant());
+                wins, losses, draws, pending, voids, unknown, games.unclassifiedCount(user.getId(), season), decided, rate, clock.instant(),
+                PostseasonWinRate.from(POSTSEASON_TYPES.stream().map(Enum::name).toList(),
+                        games.resultCounts(user.getId(), season, POSTSEASON_TYPES)));
     }
 
     private LocalDate today() { return LocalDate.now(clock.withZone(GameUserAccess.KST)); }

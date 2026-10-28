@@ -83,9 +83,64 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
                 .andExpect(jsonPath("$.seasonYear").value(2026)).andExpect(jsonPath("$.registeredCount").value(13))
                 .andExpect(jsonPath("$.wins").value(7)).andExpect(jsonPath("$.losses").value(4))
                 .andExpect(jsonPath("$.draws").value(1)).andExpect(jsonPath("$.pendingCount").value(1))
-                .andExpect(jsonPath("$.decidedCount").value(11)).andExpect(jsonPath("$.winRatePercent").value(63.6));
+                .andExpect(jsonPath("$.decidedCount").value(11)).andExpect(jsonPath("$.winRatePercent").value(63.6))
+                .andExpect(jsonPath("$.postseason.registeredCount").value(1))
+                .andExpect(jsonPath("$.postseason.losses").value(1))
+                .andExpect(jsonPath("$.postseason.winRatePercent").value(0.0));
         mvc.perform(get("/api/home/calendar").with(as(user)).param("year","2025").param("month","9")).andExpect(status().isOk());
         mvc.perform(get("/api/home/win-rate").with(as(user))).andExpect(jsonPath("$.seasonYear").value(2026)).andExpect(jsonPath("$.wins").value(7));
+    }
+
+    @Test
+    void postseasonCombinesFourRoundsButExcludesHomeDeletedOtherUsersYearsAndExhibition() throws Exception {
+        var user = user();
+        var other = user();
+        String[] types = {"WILDCARD", "SEMI_PLAYOFF", "PLAYOFF", "KOREAN_SERIES"};
+        for (int i = 0; i < types.length; i++) {
+            var row = game(TODAY.minusDays(i), "FINISHED", i < 3 ? 5 : 1, 3);
+            row.put("gameType", types[i]);
+            viewing(user, ingest(row), team("LG"), "STADIUM");
+        }
+        for (int i = 0; i < 5; i++) {
+            var excluded = game(TODAY.minusDays(10 + i), "FINISHED", 0, 9);
+            excluded.put("gameType", i == 4 ? "EXHIBITION" : "PLAYOFF");
+            if (i == 3) { excluded.put("date", "2025-09-01"); excluded.put("seasonYear", 2025); }
+            long id = viewing(i == 2 ? other : user, ingest(excluded), team("LG"), i == 0 ? "HOME" : "STADIUM");
+            if (i == 1) games.deleteLog(id, NOW);
+        }
+        mvc.perform(get("/api/home/win-rate").with(as(user)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.registeredCount").value(0))
+                .andExpect(jsonPath("$.winRatePercent").value(nullValue()))
+                .andExpect(jsonPath("$.postseason.gameTypes.length()").value(4))
+                .andExpect(jsonPath("$.postseason.registeredCount").value(4))
+                .andExpect(jsonPath("$.postseason.wins").value(3))
+                .andExpect(jsonPath("$.postseason.losses").value(1))
+                .andExpect(jsonPath("$.postseason.decidedCount").value(4))
+                .andExpect(jsonPath("$.postseason.winRatePercent").value(75.0));
+    }
+
+    @Test
+    void postseasonIsNullWithoutViewingButUndecidedViewingStillHasSeparateCounts() throws Exception {
+        var user = user();
+        var scheduled = game(TODAY, "SCHEDULED", null, null);
+        scheduled.put("gameType", "KOREAN_SERIES");
+        long gameId = ingest(scheduled);
+        mvc.perform(get("/api/home/win-rate").with(as(user))).andExpect(jsonPath("$.postseason").value(nullValue()));
+        long logId = viewing(user, gameId, team("LG"), "STADIUM");
+        mvc.perform(get("/api/home/win-rate").with(as(user)))
+                .andExpect(jsonPath("$.postseason.registeredCount").value(1))
+                .andExpect(jsonPath("$.postseason.pendingCount").value(1))
+                .andExpect(jsonPath("$.postseason.decidedCount").value(0))
+                .andExpect(jsonPath("$.postseason.winRatePercent").value(nullValue()));
+        for (String status : List.of("FINISHED", "CANCELED", "UNKNOWN")) {
+            jdbc.update("update games set status = ?, home_score = 3, away_score = 3 where id = ?", status, gameId);
+            String counter = status.equals("FINISHED") ? "draws" : status.equals("CANCELED") ? "voidCount" : "unknownCount";
+            mvc.perform(get("/api/home/win-rate").with(as(user)))
+                    .andExpect(jsonPath("$.postseason." + counter).value(1))
+                    .andExpect(jsonPath("$.postseason.winRatePercent").value(nullValue()));
+        }
+        games.updateLog(logId, com.inninglog.domain.game.model.ViewingType.HOME, NOW);
+        mvc.perform(get("/api/home/win-rate").with(as(user))).andExpect(jsonPath("$.postseason").value(nullValue()));
     }
 
     @Test
