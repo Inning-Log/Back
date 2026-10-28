@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 import com.inninglog.domain.game.repository.GameRepository;
+import com.inninglog.domain.game.model.GameType;
 import com.inninglog.domain.game.service.GameUserAccess;
 import com.inninglog.domain.home.service.HomeService;
 import com.inninglog.domain.user.entity.User;
@@ -21,13 +22,16 @@ class HomeSeasonTest {
         var user = mock(User.class);
         when(access.require("1",false)).thenReturn(user);
         when(user.getId()).thenReturn(1L);
-        when(repository.resultCounts(1,2026)).thenReturn(List.of(new GameRepository.ResultCount("WIN",3)));
-        when(repository.resultCounts(1,2027)).thenReturn(List.of());
+        var types = List.of(GameType.REGULAR, GameType.WILDCARD, GameType.SEMI_PLAYOFF, GameType.PLAYOFF, GameType.KOREAN_SERIES);
+        when(repository.resultCounts(1,2026,types)).thenReturn(List.of(new GameRepository.ResultCount("WIN",3)));
+        when(repository.resultCounts(1,2027,types)).thenReturn(List.of());
         var before = new HomeService(repository,access,Clock.fixed(Instant.parse("2026-12-31T14:59:59Z"),ZoneOffset.UTC));
         var after = new HomeService(repository,access,Clock.fixed(Instant.parse("2026-12-31T15:00:00Z"),ZoneOffset.UTC));
-        assertThat(before.winRate("1").seasonYear()).isEqualTo(2026);
-        assertThat(before.winRate("1").wins()).isEqualTo(3);
-        assertThat(after.winRate("1").seasonYear()).isEqualTo(2027);
-        assertThat(after.winRate("1").winRatePercent()).isNull();
+        assertThat(before.winRate("1", null).seasonYear()).isEqualTo(2026);
+        assertThat(before.winRate("1", null).wins()).isEqualTo(3);
+        assertThat(after.winRate("1", null).seasonYear()).isEqualTo(2027);
+        assertThat(after.winRate("1", null).winRatePercent()).isNull();
+        assertThat(after.winRate("1", 2026).seasonYear()).isEqualTo(2026);
+        assertThat(after.winRate("1", 2026).wins()).isEqualTo(3);
     }
 }

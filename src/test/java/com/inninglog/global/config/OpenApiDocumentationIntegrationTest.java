@@ -139,7 +139,28 @@ class OpenApiDocumentationIntegrationTest {
         assertThat(doc.path("paths").path("/api/timelines/profiles").path("get").path("description").asText())
                 .contains("timelineDate", "nextResetAt", "전날", "games");
         assertThat(doc.path("paths").path("/api/inning-records").path("post").path("description").asText())
-                .contains("리셋 전 전날", "리셋 후에도 기존 기록");
+                .contains("당일 첫 경기 시작 전", "리셋 후에도 기존 기록", "작성 가능 시간은 그대로");
+        assertThat(schemas.path("TimelineResponse").path("properties").path("nextResetAt").path("description").asText())
+                .contains("30분 전");
+        assertThat(allowsNull(schemas.path("WinRateResponse").path("properties").path("postseason"), schemas)).isTrue();
+        assertThat(allowsNull(schemas.path("PostseasonWinRate").path("properties").path("winRatePercent"), schemas)).isTrue();
+    }
+
+    @Test
+    void winRateDocumentsOptionalYearRangeAndKstDefault() throws Exception {
+        JsonNode operation = document().path("paths").path("/api/home/win-rate").path("get");
+        assertThat(operation.path("description").asText()).contains("생략하면 KST 현재 연도", "seasonYear", "같은 연도",
+                "합산한 전체 통계", "기록 당시 cheeringTeamId", "응원팀을 바꿔도", "다시 더하지 않습니다");
+        JsonNode parameters = operation.path("parameters");
+        assertThat(parameters.size()).isEqualTo(1);
+        JsonNode year = parameters.get(0);
+        assertThat(year.path("name").asText()).isEqualTo("year");
+        assertThat(year.path("in").asText()).isEqualTo("query");
+        assertThat(year.path("required").asBoolean()).isFalse();
+        assertThat(year.path("schema").path("minimum").asInt()).isEqualTo(1900);
+        assertThat(year.path("schema").path("maximum").asInt()).isEqualTo(9998);
+        assertThat(year.path("schema").has("default")).isFalse();
+        assertThat(year.path("description").asText()).contains("생략", "KST 현재 연도");
     }
 
     private JsonNode document() throws Exception {

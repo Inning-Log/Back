@@ -25,6 +25,23 @@ class TimelineApiIntegrationTest extends GameIntegrationSupport {
     @Autowired AccountDeletionService accountDeletion;
 
     @Test
+    void yesterdayRecordingRemainsAllowedBetweenNewResetAndOriginalDeadline() throws Exception {
+        var user = user();
+        long yesterday = setup(user);
+        jdbc.update("update games set game_date = ? where id = ?", TODAY.minusDays(1), yesterday);
+        var nextGame = game(TODAY, "SCHEDULED", null, null);
+        nextGame.put("scheduledAt", NOW.plusSeconds(600).toString());
+        ingest(nextGame);
+        mvc.perform(get("/api/timelines/me").with(as(user)).param("gameId", Long.toString(yesterday)))
+                .andExpect(jsonPath("$.timelineDate").value(TODAY.toString()))
+                .andExpect(jsonPath("$.canCreateRecord").value(true));
+        create(user, input(yesterday, 1, NOW));
+        mvc.perform(post("/api/user-game-logs").with(as(user()))
+                        .contentType(MediaType.APPLICATION_JSON).content(registration(yesterday, "STADIUM")))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
     void validatesAuthenticationIdentifiersAndRequestBodies() throws Exception {
         var user = user();
         mvc.perform(get("/api/timelines/me").param("gameId", "1")).andExpect(status().isUnauthorized());

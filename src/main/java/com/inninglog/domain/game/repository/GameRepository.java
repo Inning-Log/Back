@@ -192,6 +192,16 @@ public class GameRepository {
 
     /** Count one row per viewing, irrespective of the number of later video records. */
     public List<ResultCount> resultCounts(long userId, int seasonYear) {
+        return resultCounts(userId, seasonYear, List.of(GameType.REGULAR));
+    }
+
+    public List<ResultCount> resultCounts(long userId, int seasonYear, List<GameType> types) {
+        if (types.isEmpty()) return List.of();
+        var args = new java.util.ArrayList<Object>();
+        args.add(userId);
+        args.add(seasonYear);
+        types.forEach(type -> args.add(type.name()));
+        String placeholders = String.join(",", java.util.Collections.nCopies(types.size(), "?"));
         return jdbc.query("""
                 select result, count(*) total from (
                     select case
@@ -205,9 +215,9 @@ public class GameRepository {
                         else 'LOSS' end result
                       from user_game_logs l join games g on g.id = l.game_id
                      where l.user_id = ? and l.deleted_at is null and l.viewing_type = 'STADIUM'
-                       and g.season_year = ? and g.game_type = 'REGULAR'
+                       and g.season_year = ? and g.game_type in (%s)
                 ) results group by result
-                """, (rs, index) -> new ResultCount(rs.getString(1), rs.getLong(2)), userId, seasonYear);
+                """.formatted(placeholders), (rs, index) -> new ResultCount(rs.getString(1), rs.getLong(2)), args.toArray());
     }
 
     public long unclassifiedCount(long userId, int year) {

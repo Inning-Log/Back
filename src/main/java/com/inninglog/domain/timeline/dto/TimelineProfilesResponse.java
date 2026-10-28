@@ -11,7 +11,7 @@ public record TimelineProfilesResponse(
         List<Profile> friends,
         @Schema(description = "다음 친구 페이지의 afterUserId. 마지막 페이지면 null", nullable = true) Long nextAfterUserId,
         @Schema(description = "현재 타임라인에 유지하는 가장 이른 경기일(KST)") LocalDate timelineDate,
-        @Schema(description = "전 구단 공통 다음 리셋 시각. 이때 프로필 목록을 다시 조회") java.time.Instant nextResetAt
+        @Schema(description = "전 구단 공통 다음 화면 리셋 시각. 첫 경기 시작 30분 전이며 경기가 없으면 KST 18:30. 이때 프로필 목록 재조회. 기록 작성 시간은 별개") java.time.Instant nextResetAt
 ) {
     public record Profile(
             long userId,

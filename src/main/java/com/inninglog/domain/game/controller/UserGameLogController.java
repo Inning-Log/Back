@@ -32,7 +32,7 @@ public class UserGameLogController {
     public UserGameLogController(GameService service) { this.service = service; }
 
     @PostMapping
-    @Operation(summary = "직관·집관 등록", description = "KST 당일 경기와 리그 공통 리셋 전의 전날 경기를 등록할 수 있습니다. 리셋은 당일 가장 이른 경기 시작 시각이며, 모든 팀이 쉬면 18:30입니다. 동일 내용 재요청과 삭제 기록 복원은 같은 ID를 반환합니다.")
+    @Operation(summary = "직관·집관 등록", description = "KST 당일 00:00부터 등록 가능하며 전날 경기도 당일 첫 경기 시작 전까지 등록 가능합니다(경기 없음: 18:30). 화면 리셋은 첫 경기 30분 전이지만 등록 가능 시간은 그대로입니다. 동일 내용 재요청과 삭제 기록 복원은 같은 ID를 반환합니다.")
     @ApiResponse(responseCode = "201", description = "신규 등록")
     @ApiResponse(responseCode = "200", description = "기존 기록 또는 복원")
     public ResponseEntity<UserGameLogResponse> create(JwtAuthenticationToken auth, @Valid @RequestBody CreateUserGameLogRequest request) {

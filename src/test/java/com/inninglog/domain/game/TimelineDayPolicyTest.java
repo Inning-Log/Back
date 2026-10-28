@@ -20,13 +20,15 @@ class TimelineDayPolicyTest {
 
     @Test void earliestLeagueGameResetsEveryTeamAtExactBoundary() {
         when(games.forDate(date)).thenReturn(List.of(game("09:30:00",GameStatus.SCHEDULED),game("05:00:00",GameStatus.SCHEDULED)));
-        var before = policy("2026-10-27T04:59:59Z");
+        var before = policy("2026-10-27T04:29:59Z");
         assertThat(before.current().timelineDate()).isEqualTo(date.minusDays(1));
-        assertThat(before.current().nextResetAt()).isEqualTo(Instant.parse("2026-10-27T05:00:00Z"));
+        assertThat(before.current().nextResetAt()).isEqualTo(Instant.parse("2026-10-27T04:30:00Z"));
         assertThat(before.recordableDate(date.minusDays(1))).isTrue();
-        var at = policy("2026-10-27T05:00:00Z");
+        var at = policy("2026-10-27T04:30:00Z");
         assertThat(at.current().timelineDate()).isEqualTo(date);
-        assertThat(at.recordableDate(date.minusDays(1))).isFalse();
+        assertThat(at.recordableDate(date.minusDays(1))).isTrue();
+        assertThat(policy("2026-10-27T04:59:59Z").recordableDate(date.minusDays(1))).isTrue();
+        assertThat(policy("2026-10-27T05:00:00Z").recordableDate(date.minusDays(1))).isFalse();
     }
     @Test void allTeamsOffOrCanceledUses1830AndKeepsYesterdayAfterMidnight() {
         when(games.forDate(date)).thenReturn(List.of(game("05:00:00",GameStatus.CANCELED),game("08:00:00",GameStatus.POSTPONED)));
@@ -37,7 +39,17 @@ class TimelineDayPolicyTest {
     }
     @Test void delayedGameUsesPublishedStartAndMonthYearBoundaryWorks() {
         when(games.forDate(date)).thenReturn(List.of(game("10:00:00",GameStatus.DELAYED)));
-        assertThat(policy("2026-10-27T09:30:00Z").current().nextResetAt()).isEqualTo(Instant.parse("2026-10-27T10:00:00Z"));
+        assertThat(policy("2026-10-27T09:29:59Z").current().nextResetAt()).isEqualTo(Instant.parse("2026-10-27T09:30:00Z"));
         assertThat(policy("2026-12-31T15:00:00Z").current().timelineDate()).isEqualTo(LocalDate.of(2026,12,31));
+    }
+
+    @Test void unconfirmedPostseasonStartAlsoResetsThirtyMinutesEarlyWithoutShorteningRecording() {
+        when(games.earliestUnconfirmedStart(date)).thenReturn(java.util.Optional.of(Instant.parse("2026-10-27T09:30:00Z")));
+        var early = policy("2026-10-27T09:00:00Z");
+        assertThat(early.current().timelineDate()).isEqualTo(date);
+        assertThat(early.recordingDeadline(date)).isEqualTo(Instant.parse("2026-10-27T09:30:00Z"));
+        assertThat(early.recordableDate(date.minusDays(1))).isTrue();
+        assertThat(early.recordableDate(date)).isTrue();
+        assertThat(policy("2026-10-26T15:00:00Z").recordableDate(date)).isTrue();
     }
 }
