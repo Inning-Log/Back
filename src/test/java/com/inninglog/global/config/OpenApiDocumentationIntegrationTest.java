@@ -149,7 +149,8 @@ class OpenApiDocumentationIntegrationTest {
     @Test
     void winRateDocumentsOptionalYearRangeAndKstDefault() throws Exception {
         JsonNode operation = document().path("paths").path("/api/home/win-rate").path("get");
-        assertThat(operation.path("description").asText()).contains("생략하면 KST 현재 연도", "seasonYear", "같은 연도");
+        assertThat(operation.path("description").asText()).contains("생략하면 KST 현재 연도", "seasonYear", "같은 연도",
+                "합산한 전체 통계", "기록 당시 cheeringTeamId", "응원팀을 바꿔도", "다시 더하지 않습니다");
         JsonNode parameters = operation.path("parameters");
         assertThat(parameters.size()).isEqualTo(1);
         JsonNode year = parameters.get(0);

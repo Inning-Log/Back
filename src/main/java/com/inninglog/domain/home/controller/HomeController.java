@@ -41,7 +41,7 @@ public class HomeController {
     }
 
     @GetMapping("/win-rate")
-    @Operation(summary = "연도별 직관 승률 조회", description = "year로 선택한 시즌 연도의 STADIUM 등록을 집계하며, 생략하면 KST 현재 연도를 사용합니다. 응답 seasonYear는 실제 집계 연도입니다. 최상위 필드는 정규시즌이며 postseason은 같은 연도 와일드카드·준플레이오프·플레이오프·한국시리즈의 별도 합계입니다. 본인의 포스트시즌 직관 등록이 없으면 postseason은 null. 각 승률은 승/(승+패), 분모가 0이면 null이며 달력 조회 월과 독립적입니다. 시범경기는 제외합니다.")
+    @Operation(summary = "연도별 직관 승률 조회", description = "year로 선택한 시즌 연도의 STADIUM 등록을 집계하며, 생략하면 KST 현재 연도를 사용합니다. 응답 seasonYear는 실제 집계 연도입니다. 최상위 필드는 같은 연도 정규시즌과 포스트시즌(와일드카드·준플레이오프·플레이오프·한국시리즈)을 합산한 전체 통계입니다. 승패는 기록 당시 cheeringTeamId 기준으로 계산하므로 프로필의 응원팀을 바꿔도 기존 기록의 승률은 유지됩니다. postseason은 전체 통계에 이미 포함된 포스트시즌 상세 집계이므로 다시 더하지 않습니다. 본인의 포스트시즌 직관 등록이 없으면 postseason은 null. 각 승률은 승/(승+패), 분모가 0이면 null이며 달력 조회 월과 독립적입니다. 시범경기는 제외합니다.")
     public WinRateResponse winRate(JwtAuthenticationToken auth,
             @Parameter(description = "조회할 시즌 연도(1900~9998). 생략하면 요청 시점의 KST 현재 연도", example = "2025")
             @RequestParam(required = false) @Min(1900) @Max(9998) Integer year) {

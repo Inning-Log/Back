@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-@Schema(description = "조회 연도 본인의 포스트시즌 직관 집계. 정규시즌과 합산하지 않음")
+@Schema(description = "조회 연도 본인의 포스트시즌 상세 집계. 최상위 전체 통계에 이미 포함된 부분 집합")
 public record PostseasonWinRate(
         List<String> gameTypes,
         long registeredCount,

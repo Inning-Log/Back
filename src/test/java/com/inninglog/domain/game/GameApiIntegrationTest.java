@@ -64,7 +64,7 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
     }
 
     @Test
-    void currentRegularSeasonRateIgnoresHomeViewingOtherUsersAndOtherSeasons() throws Exception {
+    void currentSeasonCombinesRegularAndPostseasonButIgnoresHomeOtherUsersAndOtherYears() throws Exception {
         var user = user();
         var other = user();
         for (int i = 0; i < 13; i++) {
@@ -80,10 +80,16 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
         playoffs.put("gameType","PLAYOFF");
         viewing(user,ingest(playoffs),team("LG"),"STADIUM");
         mvc.perform(get("/api/home/win-rate").with(as(user))).andExpect(status().isOk())
-                .andExpect(jsonPath("$.seasonYear").value(2026)).andExpect(jsonPath("$.registeredCount").value(13))
-                .andExpect(jsonPath("$.wins").value(7)).andExpect(jsonPath("$.losses").value(4))
+                .andExpect(jsonPath("$.seasonYear").value(2026)).andExpect(jsonPath("$.registeredCount").value(14))
+                .andExpect(jsonPath("$.gameTypes.length()").value(5))
+                .andExpect(jsonPath("$.gameTypes[0]").value("REGULAR"))
+                .andExpect(jsonPath("$.gameTypes[1]").value("WILDCARD"))
+                .andExpect(jsonPath("$.gameTypes[2]").value("SEMI_PLAYOFF"))
+                .andExpect(jsonPath("$.gameTypes[3]").value("PLAYOFF"))
+                .andExpect(jsonPath("$.gameTypes[4]").value("KOREAN_SERIES"))
+                .andExpect(jsonPath("$.wins").value(7)).andExpect(jsonPath("$.losses").value(5))
                 .andExpect(jsonPath("$.draws").value(1)).andExpect(jsonPath("$.pendingCount").value(1))
-                .andExpect(jsonPath("$.decidedCount").value(11)).andExpect(jsonPath("$.winRatePercent").value(63.6))
+                .andExpect(jsonPath("$.decidedCount").value(12)).andExpect(jsonPath("$.winRatePercent").value(58.3))
                 .andExpect(jsonPath("$.postseason.registeredCount").value(1))
                 .andExpect(jsonPath("$.postseason.losses").value(1))
                 .andExpect(jsonPath("$.postseason.winRatePercent").value(0.0));
@@ -92,7 +98,7 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
     }
 
     @Test
-    void selectedYearSeparatesRegularAndPostseasonAndDoesNotChangeDefaultYear() throws Exception {
+    void selectedYearCombinesRegularAndPostseasonAndDoesNotChangeDefaultYear() throws Exception {
         var user = user();
         for (int year : List.of(2025, 2026)) {
             viewing(user, ingest(game(LocalDate.of(year, 6, 1), "FINISHED", year == 2025 ? 5 : 0, 3)), team("LG"), "STADIUM");
@@ -106,16 +112,16 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
         mvc.perform(get("/api/home/win-rate").with(as(user)).param("year", "2025"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.seasonYear").value(2025))
                 .andExpect(jsonPath("$.gameTypes[0]").value("REGULAR"))
-                .andExpect(jsonPath("$.registeredCount").value(1)).andExpect(jsonPath("$.wins").value(1))
-                .andExpect(jsonPath("$.losses").value(0)).andExpect(jsonPath("$.winRatePercent").value(100.0))
+                .andExpect(jsonPath("$.registeredCount").value(2)).andExpect(jsonPath("$.wins").value(1))
+                .andExpect(jsonPath("$.losses").value(1)).andExpect(jsonPath("$.winRatePercent").value(50.0))
                 .andExpect(jsonPath("$.unclassifiedCount").value(1))
                 .andExpect(jsonPath("$.postseason.registeredCount").value(1))
                 .andExpect(jsonPath("$.postseason.wins").value(0)).andExpect(jsonPath("$.postseason.losses").value(1))
                 .andExpect(jsonPath("$.postseason.winRatePercent").value(0.0));
         mvc.perform(get("/api/home/win-rate").with(as(user)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.seasonYear").value(2026))
-                .andExpect(jsonPath("$.registeredCount").value(1)).andExpect(jsonPath("$.losses").value(1))
-                .andExpect(jsonPath("$.winRatePercent").value(0.0)).andExpect(jsonPath("$.unclassifiedCount").value(0))
+                .andExpect(jsonPath("$.registeredCount").value(2)).andExpect(jsonPath("$.losses").value(1))
+                .andExpect(jsonPath("$.winRatePercent").value(50.0)).andExpect(jsonPath("$.unclassifiedCount").value(0))
                 .andExpect(jsonPath("$.postseason.registeredCount").value(1))
                 .andExpect(jsonPath("$.postseason.wins").value(1))
                 .andExpect(jsonPath("$.postseason.winRatePercent").value(100.0));
@@ -162,8 +168,9 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
             if (i == 1) games.deleteLog(id, NOW);
         }
         mvc.perform(get("/api/home/win-rate").with(as(user)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.registeredCount").value(0))
-                .andExpect(jsonPath("$.winRatePercent").value(nullValue()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.registeredCount").value(4))
+                .andExpect(jsonPath("$.wins").value(3)).andExpect(jsonPath("$.losses").value(1))
+                .andExpect(jsonPath("$.winRatePercent").value(75.0))
                 .andExpect(jsonPath("$.postseason.gameTypes.length()").value(4))
                 .andExpect(jsonPath("$.postseason.registeredCount").value(4))
                 .andExpect(jsonPath("$.postseason.wins").value(3))
@@ -181,6 +188,9 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
         mvc.perform(get("/api/home/win-rate").with(as(user))).andExpect(jsonPath("$.postseason").value(nullValue()));
         long logId = viewing(user, gameId, team("LG"), "STADIUM");
         mvc.perform(get("/api/home/win-rate").with(as(user)))
+                .andExpect(jsonPath("$.registeredCount").value(1))
+                .andExpect(jsonPath("$.pendingCount").value(1))
+                .andExpect(jsonPath("$.winRatePercent").value(nullValue()))
                 .andExpect(jsonPath("$.postseason.registeredCount").value(1))
                 .andExpect(jsonPath("$.postseason.pendingCount").value(1))
                 .andExpect(jsonPath("$.postseason.decidedCount").value(0))
@@ -189,6 +199,8 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
             jdbc.update("update games set status = ?, home_score = 3, away_score = 3 where id = ?", status, gameId);
             String counter = status.equals("FINISHED") ? "draws" : status.equals("CANCELED") ? "voidCount" : "unknownCount";
             mvc.perform(get("/api/home/win-rate").with(as(user)))
+                    .andExpect(jsonPath("$." + counter).value(1))
+                    .andExpect(jsonPath("$.winRatePercent").value(nullValue()))
                     .andExpect(jsonPath("$.postseason." + counter).value(1))
                     .andExpect(jsonPath("$.postseason.winRatePercent").value(nullValue()));
         }
@@ -248,6 +260,33 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
         mvc.perform(get("/api/home/calendar").with(as(user)).param("year","2026").param("month","9"))
                 .andExpect(jsonPath("$.days[13].games[0].displayTeam.teamCode").value("OB"))
                 .andExpect(jsonPath("$.days[13].games[0].displayResult").value("WIN"));
+    }
+
+    @Test
+    void changingFavoriteTeamViaApiPreservesCombinedRatesAndRecordedCheeringTeamsAcrossYears() throws Exception {
+        var user = user();
+        Map<Integer, tools.jackson.databind.JsonNode> before = new HashMap<>();
+        for (int year : List.of(2025, 2026)) {
+            viewing(user, ingest(game(LocalDate.of(year, 6, 1), "FINISHED", 5, 3)), team("LG"), "STADIUM");
+            var postseason = game(LocalDate.of(year, 9, 1), "FINISHED", 0, 3);
+            postseason.put("gameType", "KOREAN_SERIES");
+            viewing(user, ingest(postseason), team("OB"), "STADIUM");
+            var response = mvc.perform(get("/api/home/win-rate").with(as(user)).param("year", String.valueOf(year)))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.registeredCount").value(2))
+                    .andExpect(jsonPath("$.wins").value(2)).andExpect(jsonPath("$.winRatePercent").value(100.0))
+                    .andExpect(jsonPath("$.postseason.wins").value(1)).andReturn();
+            before.put(year, mapper.readTree(response.getResponse().getContentAsString()));
+        }
+        mvc.perform(put("/api/mypage/favorite-team").with(as(user)).contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("favoriteTeamId", team("NC")))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.favoriteTeam.id").value(team("NC")));
+        for (int year : before.keySet()) {
+            var response = mvc.perform(get("/api/home/win-rate").with(as(user)).param("year", String.valueOf(year)))
+                    .andExpect(status().isOk()).andReturn();
+            assertThat(mapper.readTree(response.getResponse().getContentAsString())).isEqualTo(before.get(year));
+        }
+        assertThat(jdbc.queryForList("select distinct cheering_team_id from user_game_logs where user_id = ?",
+                Long.class, user.getId())).containsExactlyInAnyOrder(team("LG"), team("OB"));
     }
 
     @Test
