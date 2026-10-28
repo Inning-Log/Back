@@ -51,9 +51,9 @@ public class HomeService {
                 first.datesUntil(until).map(date -> new CalendarResponse.Day(date, byDate.getOrDefault(date, List.of()))).toList());
     }
 
-    public WinRateResponse winRate(String subject) {
+    public WinRateResponse winRate(String subject, Integer year) {
         var user = access.require(subject, false);
-        int season = today().getYear();
+        int season = year == null ? today().getYear() : year;
         Map<String, Long> counts = games.resultCounts(user.getId(), season).stream()
                 .collect(Collectors.toMap(GameRepository.ResultCount::result, GameRepository.ResultCount::count));
         long wins = counts.getOrDefault("WIN", 0L), losses = counts.getOrDefault("LOSS", 0L);

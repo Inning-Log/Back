@@ -92,6 +92,59 @@ class GameApiIntegrationTest extends GameIntegrationSupport {
     }
 
     @Test
+    void selectedYearSeparatesRegularAndPostseasonAndDoesNotChangeDefaultYear() throws Exception {
+        var user = user();
+        for (int year : List.of(2025, 2026)) {
+            viewing(user, ingest(game(LocalDate.of(year, 6, 1), "FINISHED", year == 2025 ? 5 : 0, 3)), team("LG"), "STADIUM");
+            var postseason = game(LocalDate.of(year, 9, 1), "FINISHED", year == 2025 ? 0 : 5, 3);
+            postseason.put("gameType", "PLAYOFF");
+            viewing(user, ingest(postseason), team("LG"), "STADIUM");
+        }
+        var unclassified = game(LocalDate.of(2025, 6, 2), "FINISHED", 5, 0);
+        unclassified.remove("gameType");
+        viewing(user, ingest(unclassified), team("LG"), "STADIUM");
+        mvc.perform(get("/api/home/win-rate").with(as(user)).param("year", "2025"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.seasonYear").value(2025))
+                .andExpect(jsonPath("$.gameTypes[0]").value("REGULAR"))
+                .andExpect(jsonPath("$.registeredCount").value(1)).andExpect(jsonPath("$.wins").value(1))
+                .andExpect(jsonPath("$.losses").value(0)).andExpect(jsonPath("$.winRatePercent").value(100.0))
+                .andExpect(jsonPath("$.unclassifiedCount").value(1))
+                .andExpect(jsonPath("$.postseason.registeredCount").value(1))
+                .andExpect(jsonPath("$.postseason.wins").value(0)).andExpect(jsonPath("$.postseason.losses").value(1))
+                .andExpect(jsonPath("$.postseason.winRatePercent").value(0.0));
+        mvc.perform(get("/api/home/win-rate").with(as(user)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.seasonYear").value(2026))
+                .andExpect(jsonPath("$.registeredCount").value(1)).andExpect(jsonPath("$.losses").value(1))
+                .andExpect(jsonPath("$.winRatePercent").value(0.0)).andExpect(jsonPath("$.unclassifiedCount").value(0))
+                .andExpect(jsonPath("$.postseason.registeredCount").value(1))
+                .andExpect(jsonPath("$.postseason.wins").value(1))
+                .andExpect(jsonPath("$.postseason.winRatePercent").value(100.0));
+    }
+
+    @Test
+    void selectedYearWithoutRecordsReturnsEmptyStatisticsIncludingSupportedYearBounds() throws Exception {
+        var user = user();
+        viewing(user, ingest(game(TODAY, "FINISHED", 5, 3)), team("LG"), "STADIUM");
+        for (String year : List.of("1900", "2024", "9998")) {
+            mvc.perform(get("/api/home/win-rate").with(as(user)).param("year", year))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.seasonYear").value(Integer.parseInt(year)))
+                    .andExpect(jsonPath("$.registeredCount").value(0)).andExpect(jsonPath("$.wins").value(0))
+                    .andExpect(jsonPath("$.losses").value(0)).andExpect(jsonPath("$.unclassifiedCount").value(0))
+                    .andExpect(jsonPath("$.winRatePercent").value(nullValue()))
+                    .andExpect(jsonPath("$.postseason").value(nullValue()));
+        }
+    }
+
+    @Test
+    void winRateRejectsOutOfRangeAndMalformedYears() throws Exception {
+        var user = user();
+        for (String year : List.of("0", "1899", "9999", "2025.5", "invalid", "2147483648")) {
+            mvc.perform(get("/api/home/win-rate").with(as(user)).param("year", year))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+    }
+
+    @Test
     void postseasonCombinesFourRoundsButExcludesHomeDeletedOtherUsersYearsAndExhibition() throws Exception {
         var user = user();
         var other = user();

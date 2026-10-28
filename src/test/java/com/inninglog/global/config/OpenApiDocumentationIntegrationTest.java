@@ -146,6 +146,22 @@ class OpenApiDocumentationIntegrationTest {
         assertThat(allowsNull(schemas.path("PostseasonWinRate").path("properties").path("winRatePercent"), schemas)).isTrue();
     }
 
+    @Test
+    void winRateDocumentsOptionalYearRangeAndKstDefault() throws Exception {
+        JsonNode operation = document().path("paths").path("/api/home/win-rate").path("get");
+        assertThat(operation.path("description").asText()).contains("생략하면 KST 현재 연도", "seasonYear", "같은 연도");
+        JsonNode parameters = operation.path("parameters");
+        assertThat(parameters.size()).isEqualTo(1);
+        JsonNode year = parameters.get(0);
+        assertThat(year.path("name").asText()).isEqualTo("year");
+        assertThat(year.path("in").asText()).isEqualTo("query");
+        assertThat(year.path("required").asBoolean()).isFalse();
+        assertThat(year.path("schema").path("minimum").asInt()).isEqualTo(1900);
+        assertThat(year.path("schema").path("maximum").asInt()).isEqualTo(9998);
+        assertThat(year.path("schema").has("default")).isFalse();
+        assertThat(year.path("description").asText()).contains("생략", "KST 현재 연도");
+    }
+
     private JsonNode document() throws Exception {
         return objectMapper.readTree(mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
