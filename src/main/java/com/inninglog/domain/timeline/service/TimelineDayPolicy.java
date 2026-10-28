@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Set;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 /** One league-wide boundary for every team, in Korea time. No stored media is reset. */
@@ -20,12 +21,25 @@ public class TimelineDayPolicy {
     public TimelineDayPolicy(GameRepository games, Clock clock) { this.games = games; this.clock = clock; }
 
     public Instant boundary(LocalDate date) {
+        return earliestStart(date).map(start -> start.minusSeconds(30 * 60))
+                .orElseGet(() -> noGameBoundary(date));
+    }
+
+    /** Recording eligibility deliberately keeps the original start-time deadline. */
+    public Instant recordingDeadline(LocalDate date) {
+        return earliestStart(date).orElseGet(() -> noGameBoundary(date));
+    }
+
+    private Instant noGameBoundary(LocalDate date) {
+        return date.atTime(LocalTime.of(18, 30)).atZone(GameUserAccess.KST).toInstant();
+    }
+
+    private Optional<Instant> earliestStart(LocalDate date) {
         var known = games.forDate(date).stream().filter(g -> !EXCLUDED.contains(g.status()))
                 .map(g -> g.scheduledAt()).filter(java.util.Objects::nonNull)
                 .min(Instant::compareTo);
         return java.util.stream.Stream.concat(known.stream(), games.earliestUnconfirmedStart(date).stream())
-                .min(Instant::compareTo)
-                .orElse(date.atTime(LocalTime.of(18, 30)).atZone(GameUserAccess.KST).toInstant());
+                .min(Instant::compareTo);
     }
 
     public Window current() {
@@ -38,7 +52,7 @@ public class TimelineDayPolicy {
 
     public boolean recordableDate(LocalDate date) {
         LocalDate today = clock.instant().atZone(GameUserAccess.KST).toLocalDate();
-        return date.equals(today) || (date.equals(today.minusDays(1)) && clock.instant().isBefore(boundary(today)));
+        return date.equals(today) || (date.equals(today.minusDays(1)) && clock.instant().isBefore(recordingDeadline(today)));
     }
 
     public record Window(LocalDate timelineDate, Instant nextResetAt) {}

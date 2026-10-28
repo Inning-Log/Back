@@ -123,7 +123,7 @@ public class TimelineService {
             throw GameException.conflict("GAME_NOT_RECORDABLE", "취소되거나 연기된 경기입니다.");
         Instant now = clock.instant();
         if (captured.isBefore(game.gameDate().atStartOfDay(GameUserAccess.KST).toInstant())
-                || !captured.isBefore(days.boundary(game.gameDate().plusDays(1))) || captured.isAfter(now))
+                || !captured.isBefore(days.recordingDeadline(game.gameDate().plusDays(1))) || captured.isAfter(now))
             throw new IllegalArgumentException("촬영 시각은 해당 경기의 기록 가능 시간 안이며 현재 시각 이후일 수 없습니다.");
         // A state remains valid until the next change. This also supports delayed uploads after the game ends.
         var state = games.stateAtOrBefore(game.id(), captured)

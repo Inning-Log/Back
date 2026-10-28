@@ -139,7 +139,11 @@ class OpenApiDocumentationIntegrationTest {
         assertThat(doc.path("paths").path("/api/timelines/profiles").path("get").path("description").asText())
                 .contains("timelineDate", "nextResetAt", "전날", "games");
         assertThat(doc.path("paths").path("/api/inning-records").path("post").path("description").asText())
-                .contains("리셋 전 전날", "리셋 후에도 기존 기록");
+                .contains("당일 첫 경기 시작 전", "리셋 후에도 기존 기록", "작성 가능 시간은 그대로");
+        assertThat(schemas.path("TimelineResponse").path("properties").path("nextResetAt").path("description").asText())
+                .contains("30분 전");
+        assertThat(allowsNull(schemas.path("WinRateResponse").path("properties").path("postseason"), schemas)).isTrue();
+        assertThat(allowsNull(schemas.path("PostseasonWinRate").path("properties").path("winRatePercent"), schemas)).isTrue();
     }
 
     private JsonNode document() throws Exception {
