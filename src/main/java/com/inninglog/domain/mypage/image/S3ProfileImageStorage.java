@@ -60,7 +60,7 @@ public class S3ProfileImageStorage implements ProfileImageStorage {
             return bytes;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) throw new ProfileImageException(HttpStatus.CONFLICT,
-                    "PROFILE_IMAGE_NOT_UPLOADED", "S3 업로드를 완료한 뒤 다시 시도해 주세요.");
+                    "PROFILE_IMAGE_NOT_UPLOADED", "이미지 업로드를 완료한 뒤 다시 시도해 주세요.");
             throw unavailable();
         } catch (IOException | SdkException e) { throw unavailable(); }
     }

@@ -110,9 +110,9 @@ public class TimelineService {
         var existing = records.findByClientId(log.id(), request.clientRecordId()).orElse(null);
         if (existing != null) {
             if (!existing.requestFingerprint().equals(fingerprint))
-                throw GameException.conflict("RECORD_REQUEST_CONFLICT", "같은 clientRecordId로 다른 기록을 저장할 수 없습니다.");
+                throw GameException.conflict("RECORD_REQUEST_CONFLICT", "이미 처리된 기록 요청입니다. 새 기록으로 다시 시도해 주세요.");
             if (existing.deletedAt() != null)
-                throw GameException.conflict("RECORD_DELETED", "삭제한 기록입니다. 새 기록에는 새 clientRecordId를 사용해 주세요.");
+                throw GameException.conflict("RECORD_DELETED", "이미 삭제한 기록입니다. 새 기록을 작성해 주세요.");
             return new Registration(InningRecordResponse.from(existing), false);
         }
         games.lockGame(request.gameId());

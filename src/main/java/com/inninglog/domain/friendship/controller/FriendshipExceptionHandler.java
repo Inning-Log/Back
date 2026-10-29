@@ -19,6 +19,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice(assignableTypes = {FriendshipController.class, UserSearchController.class})
 public class FriendshipExceptionHandler {
@@ -82,9 +84,10 @@ public class FriendshipExceptionHandler {
         return error(HttpStatus.FORBIDDEN, "FRIENDSHIP_ACTION_NOT_ALLOWED", exception.getMessage());
     }
 
-    @ExceptionHandler({ConstraintViolationException.class, MethodArgumentNotValidException.class})
+    @ExceptionHandler({ConstraintViolationException.class, MethodArgumentNotValidException.class,
+            HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
     public ResponseEntity<FriendshipErrorResponse> handleInvalidRequest(Exception exception) {
-        return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "The friendship request is invalid.");
+        return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "요청 형식과 필수 값을 확인해 주세요.");
     }
 
     private static ResponseEntity<FriendshipErrorResponse> error(

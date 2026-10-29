@@ -57,7 +57,7 @@ public class GameService {
         // A retry remains idempotent after midnight or a subsequent cancellation.
         if (existing != null && existing.deletedAt() == null) {
             if (existing.cheeringTeamId() != request.cheeringTeamId() || existing.viewingType() != request.viewingType())
-                throw GameException.conflict("VIEWING_ALREADY_EXISTS", "이미 등록된 경기입니다. 관람 방식 정정 API를 사용해 주세요.");
+                throw GameException.conflict("VIEWING_ALREADY_EXISTS", "이미 등록된 경기입니다. 기존 기록의 관람 방식을 수정해 주세요.");
             return new Registration(response(existing), false);
         }
         games.lockGame(request.gameId());
