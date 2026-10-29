@@ -65,13 +65,13 @@ public class GameNotificationService {
         if (adjacent || finished) {
             notify(viewers, game, NotificationType.GAME_INNING_ENDED,
                     "inning-ended:" + previous.currentInning() + ':' + previous.currentHalf(),
-                    "이닝이 종료됐어요", inningLabel(previous.currentInning(), previous.currentHalf()) + "가 종료됐어요.",
+                    "이닝이 종료됐어요", inningSubject(previous.currentInning(), previous.currentHalf()) + " 종료됐어요.",
                     previous.currentInning(), previous.currentHalf());
         }
         if (adjacent || firstPitch) {
             notify(viewers, game, NotificationType.GAME_INNING_STARTED,
                     "inning-started:" + game.currentInning() + ':' + game.currentHalf(),
-                    "새 이닝이 시작됐어요", inningLabel(game.currentInning(), game.currentHalf()) + "가 시작됐어요.",
+                    "새 이닝이 시작됐어요", inningSubject(game.currentInning(), game.currentHalf()) + " 시작됐어요.",
                     game.currentInning(), game.currentHalf());
         }
         boolean comparableScore = "SCOREBOARD".equals(previous.resultSource())
@@ -123,6 +123,8 @@ public class GameNotificationService {
                 || (next.currentInning() == previous.currentInning() + 1 && "BOTTOM".equals(previous.currentHalf()) && "TOP".equals(next.currentHalf()));
     }
 
-    private static String inningLabel(int inning, String half) { return inning + "회" + ("TOP".equals(half) ? "초" : "말"); }
+    private static String inningSubject(int inning, String half) {
+        return inning + "회" + ("TOP".equals(half) ? "초가" : "말이");
+    }
     private record Viewer(long logId, long userId) {}
 }
