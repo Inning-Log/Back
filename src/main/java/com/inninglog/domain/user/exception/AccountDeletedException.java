@@ -3,6 +3,6 @@ package com.inninglog.domain.user.exception;
 public class AccountDeletedException extends RuntimeException {
 
     public AccountDeletedException() {
-        super("This account has been deleted.");
+        super("탈퇴한 계정입니다.");
     }
 }

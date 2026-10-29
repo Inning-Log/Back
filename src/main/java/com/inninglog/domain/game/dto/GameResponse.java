@@ -17,9 +17,9 @@ public record GameResponse(
         Game.Team awayTeam,
         @Schema(description = "구장 미확정 시 null", nullable = true) String stadiumName,
         Score score,
-        @Schema(description = "응원 기준 팀. 경기와 연결된 응원팀이 없으면 null", nullable = true) Game.Team displayTeam,
+        @Schema(description = "응원 기준 팀. 본인의 활성 관람 기록이 있으면 기록 당시 cheeringTeamId를 사용하며, 없으면 현재 프로필 응원팀을 사용합니다. 해당 경기 참가 팀이 아니면 null", nullable = true) Game.Team displayTeam,
         @Schema(description = "응원 기준 팀이 없으면 null", nullable = true) Game.Team opponentTeam,
-        GameResult displayResult,
+        @Schema(description = "displayTeam 기준 경기 결과. 관람 기록이 있으면 프로필 응원팀 변경 후에도 기록 당시 응원팀 기준을 유지합니다.") GameResult displayResult,
         @Schema(description = "인증 사용자 본인의 관람 등록. 미등록이면 null. 친구 타임라인에서도 본인 기준", nullable = true) Viewing myViewing,
         @Schema(description = "본인의 활성 기록 기준 영상 상태. READY: 검증된 영상 있음, NONE: 기록 없음, UNAVAILABLE: 기록은 있지만 조회 가능한 영상 없음. 관람 등록만으로 READY가 되지 않습니다.",
                 allowableValues = {"READY", "NONE", "UNAVAILABLE"}) String recordingState,
@@ -39,9 +39,9 @@ public record GameResponse(
             log = null;
             summary = GameRecordingSummary.EMPTY;
         }
-        Long displayId = favoriteTeamId != null && game.includesTeam(favoriteTeamId)
-                ? favoriteTeamId : log == null ? null : log.cheeringTeamId();
-        Game.Team display = displayId == null ? null : game.homeTeam().id() == displayId ? game.homeTeam() : game.awayTeam();
+        Long displayId = log != null ? Long.valueOf(log.cheeringTeamId()) : favoriteTeamId;
+        Game.Team display = displayId == null || !game.includesTeam(displayId) ? null
+                : game.homeTeam().id() == displayId ? game.homeTeam() : game.awayTeam();
         Game.Team opponent = display == null ? null : display.id() == game.homeTeam().id() ? game.awayTeam() : game.homeTeam();
         return new GameResponse(game.id(), game.seasonYear(), game.gameType(), game.gameDate(), game.gameSequence(),
                 game.scheduledAt(), game.status(), game.homeTeam(), game.awayTeam(), game.stadiumName(),

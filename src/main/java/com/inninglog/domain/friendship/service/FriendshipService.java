@@ -140,7 +140,7 @@ public class FriendshipService {
         User currentUser = findCurrentUser(subject);
         requireCompletedProfile(currentUser);
         Friendship friendship = findVisibleForUpdate(friendshipId, currentUser.getId());
-        requireReceiver(friendship, currentUser.getId(), "Only the receiver can accept this friend request.");
+        requireReceiver(friendship, currentUser.getId(), "친구 신청을 받은 사용자만 수락할 수 있습니다.");
         requireFriendCandidate(friendship.getRequester());
 
         if (friendship.getStatus() == FriendshipStatus.ACCEPTED) {
@@ -148,7 +148,7 @@ public class FriendshipService {
             return FriendshipResponse.from(friendship, currentUser.getId());
         }
         if (friendship.getStatus() != FriendshipStatus.PENDING) {
-            throw new InvalidFriendshipStateException("A rejected friend request cannot be accepted.");
+            throw new InvalidFriendshipStateException("이미 거절한 친구 신청은 수락할 수 없습니다.");
         }
 
         friendship.accept(clock.instant());
@@ -162,7 +162,7 @@ public class FriendshipService {
         User currentUser = findCurrentUser(subject);
         requireCompletedProfile(currentUser);
         Friendship friendship = findVisibleForUpdate(friendshipId, currentUser.getId());
-        requireReceiver(friendship, currentUser.getId(), "Only the receiver can reject this friend request.");
+        requireReceiver(friendship, currentUser.getId(), "친구 신청을 받은 사용자만 거절할 수 있습니다.");
         requireFriendCandidate(friendship.getRequester());
 
         if (friendship.getStatus() == FriendshipStatus.REJECTED) {
@@ -170,7 +170,7 @@ public class FriendshipService {
             return FriendshipResponse.from(friendship, currentUser.getId());
         }
         if (friendship.getStatus() != FriendshipStatus.PENDING) {
-            throw new InvalidFriendshipStateException("An accepted friendship cannot be rejected as a request.");
+            throw new InvalidFriendshipStateException("이미 수락한 친구 신청은 거절할 수 없습니다.");
         }
 
         friendship.reject(clock.instant());
@@ -185,11 +185,11 @@ public class FriendshipService {
         Friendship friendship = findVisibleForUpdate(friendshipId, currentUser.getId());
 
         if (friendship.getStatus() == FriendshipStatus.REJECTED) {
-            throw new InvalidFriendshipStateException("A rejected friend request cannot be deleted.");
+            throw new InvalidFriendshipStateException("이미 거절한 친구 신청은 삭제할 수 없습니다.");
         }
         if (friendship.getStatus() == FriendshipStatus.PENDING && !friendship.isRequester(currentUser.getId())) {
             throw new FriendshipActionNotAllowedException(
-                    "The receiver must accept or reject a pending friend request.");
+                    "받은 친구 신청은 수락 또는 거절해 주세요.");
         }
         notificationService.friendRequestResolved(friendship);
         friendshipRepository.delete(friendship);

@@ -16,7 +16,7 @@ public class OAuthExceptionHandler {
     @ExceptionHandler(InvalidGoogleTokenException.class)
     public ResponseEntity<OAuthErrorResponse> handleInvalidGoogleToken(InvalidGoogleTokenException exception) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(new OAuthErrorResponse("INVALID_GOOGLE_TOKEN", exception.getMessage(), Instant.now()));
+                .body(new OAuthErrorResponse("INVALID_GOOGLE_TOKEN", "Google 로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요.", Instant.now()));
     }
 
     @ExceptionHandler(AccountDeletedException.class)
@@ -36,7 +36,7 @@ public class OAuthExceptionHandler {
             OAuthProviderNotConfiguredException exception
     ) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(new OAuthErrorResponse("AUTH_PROVIDER_NOT_CONFIGURED", exception.getMessage(), Instant.now()));
+                .body(new OAuthErrorResponse("AUTH_PROVIDER_NOT_CONFIGURED", "현재 Google 로그인을 이용할 수 없습니다. 잠시 후 다시 시도해 주세요.", Instant.now()));
     }
 
     public record OAuthErrorResponse(String code, String message, Instant timestamp) {

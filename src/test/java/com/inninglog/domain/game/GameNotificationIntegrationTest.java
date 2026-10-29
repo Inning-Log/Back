@@ -7,10 +7,35 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.transaction.annotation.Transactional;
 
 @Transactional
 class GameNotificationIntegrationTest extends GameIntegrationSupport {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 7, 12})
+    void inningParticlesAreCorrectInBothInboxAndPushOutbox(int inning) {
+        var input = live(inning, "TOP", 1, 2);
+        long id = baseline(input);
+        viewing(user(), id, team("LG"), "HOME");
+
+        input.put("half", "BOTTOM");
+        window(input, OBSERVED.plusSeconds(1));
+        input.put("inning", inning + 1);
+        input.put("half", "TOP");
+        window(input, OBSERVED.plusSeconds(2));
+
+        for (String table : List.of("notifications", "notification_outbox")) {
+            assertThat(jdbc.queryForList("select body from " + table
+                    + " where notification_type = 'GAME_INNING_STARTED' order by id", String.class))
+                    .containsExactly(inning + "회말이 시작됐어요.", (inning + 1) + "회초가 시작됐어요.");
+            assertThat(jdbc.queryForList("select body from " + table
+                    + " where notification_type = 'GAME_INNING_ENDED' order by id", String.class))
+                    .containsExactly(inning + "회초가 종료됐어요.", inning + "회말이 종료됐어요.");
+        }
+    }
+
     @Test
     void baselineAndUnchangedObservationsDoNotNotifyOrRemind() {
         var input = live(3, "BOTTOM", 1, 2);

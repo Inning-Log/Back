@@ -84,10 +84,10 @@ public class VideoService {
         if (video.status() == VideoStatus.PENDING) {
             if (!clock.instant().isBefore(video.uploadExpiresAt().plus(VideoCleanupService.COMPLETION_GRACE))) {
                 discard(video);
-                throw GameException.conflict("VIDEO_UPLOAD_EXPIRED", "업로드 완료 기한이 지났습니다. 새 업로드 URL을 발급받아 주세요.");
+                throw GameException.conflict("VIDEO_UPLOAD_EXPIRED", "업로드 가능 시간이 지났습니다. 영상을 다시 업로드해 주세요.");
             }
             var stored = storage.head(video.objectKey()).orElseThrow(() ->
-                    GameException.conflict("VIDEO_NOT_UPLOADED", "S3에 업로드된 파일을 찾을 수 없습니다. 업로드 후 다시 시도해 주세요."));
+                    GameException.conflict("VIDEO_NOT_UPLOADED", "업로드된 영상을 찾을 수 없습니다. 업로드를 완료한 뒤 다시 시도해 주세요."));
             String storedType = stored.contentType() == null ? "" : stored.contentType().split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
             if (stored.sizeBytes() != video.sizeBytes() || !storedType.equals(video.contentType())) {
                 discard(video);

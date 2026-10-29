@@ -58,7 +58,7 @@ public class MyPageExceptionHandler {
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<MyPageErrorResponse> handleConstraintViolation(ConstraintViolationException exception) {
         return ResponseEntity.badRequest()
-                .body(new MyPageErrorResponse("INVALID_REQUEST", exception.getMessage(), Instant.now()));
+                .body(new MyPageErrorResponse("INVALID_REQUEST", "요청 형식과 필수 값을 확인해 주세요.", Instant.now()));
     }
 
     public record MyPageErrorResponse(String code, String message, Instant timestamp) {

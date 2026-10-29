@@ -9,6 +9,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice(assignableTypes = {
         NotificationController.class,
@@ -22,10 +25,11 @@ public class NotificationExceptionHandler {
                 .body(new NotificationErrorResponse("USER_NOT_FOUND", exception.getMessage(), Instant.now()));
     }
 
-    @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<NotificationErrorResponse> handleConstraintViolation(ConstraintViolationException exception) {
+    @ExceptionHandler({ConstraintViolationException.class, MethodArgumentNotValidException.class,
+            HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<NotificationErrorResponse> handleConstraintViolation(Exception exception) {
         return ResponseEntity.badRequest()
-                .body(new NotificationErrorResponse("INVALID_REQUEST", exception.getMessage(), Instant.now()));
+                .body(new NotificationErrorResponse("INVALID_REQUEST", "요청 형식과 필수 값을 확인해 주세요.", Instant.now()));
     }
 
     @ExceptionHandler(NotificationNotFoundException.class)

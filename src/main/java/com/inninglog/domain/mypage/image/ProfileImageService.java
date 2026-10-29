@@ -75,9 +75,9 @@ public class ProfileImageService {
         var upload = uploads.find(id).filter(u -> u.userId() == user.getId()).orElseThrow(ProfileImageService::missing);
         if (upload.status().equals("READY") && url.equals(user.getProfileImageUrl())) return;
         if (!upload.status().equals("PENDING"))
-            throw error(HttpStatus.CONFLICT, "PROFILE_IMAGE_UPLOAD_REPLACED", "새 업로드 URL을 발급받아 주세요.");
+            throw error(HttpStatus.CONFLICT, "PROFILE_IMAGE_UPLOAD_REPLACED", "다른 이미지 업로드가 요청되었습니다. 사용할 이미지를 다시 업로드해 주세요.");
         if (!clock.instant().isBefore(upload.expiresAt()))
-            throw error(HttpStatus.CONFLICT, "PROFILE_IMAGE_UPLOAD_EXPIRED", "업로드 요청이 만료됐습니다. 새 URL을 발급받아 주세요.");
+            throw error(HttpStatus.CONFLICT, "PROFILE_IMAGE_UPLOAD_EXPIRED", "업로드 가능 시간이 지났습니다. 이미지를 다시 업로드해 주세요.");
         byte[] original = storage.readUpload(id, upload.contentType(), upload.size());
         byte[] sanitized = processor.sanitize(original, upload.contentType());
         storage.publish(id, sanitized);
@@ -128,7 +128,7 @@ public class ProfileImageService {
     }
     public static String imageUrl(UUID id) { return IMAGE_PATH + id; }
     private static ProfileImageException missing() {
-        return error(HttpStatus.NOT_FOUND, "PROFILE_IMAGE_NOT_FOUND", "프로필 이미지 업로드를 찾을 수 없습니다.");
+        return error(HttpStatus.NOT_FOUND, "PROFILE_IMAGE_NOT_FOUND", "프로필 이미지를 찾을 수 없습니다.");
     }
     private static ProfileImageException error(HttpStatus status, String code, String message) {
         return new ProfileImageException(status, code, message);

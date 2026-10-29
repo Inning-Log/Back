@@ -20,7 +20,7 @@ public class GameUserAccess {
                 .orElseThrow(() -> GameException.notFound("USER_NOT_FOUND"));
         if (user.isDeleted()) throw GameException.conflict("ACCOUNT_DELETED", "탈퇴한 계정입니다.");
         if (!user.isOnboardingCompleted() || user.getFavoriteTeam() == null)
-            throw GameException.conflict("PROFILE_SETUP_REQUIRED", "온보딩을 완료해 주세요.");
+            throw GameException.conflict("PROFILE_SETUP_REQUIRED", "가입 설정을 완료해 주세요.");
         return user;
     }
 }

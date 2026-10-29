@@ -69,9 +69,9 @@ public class VideoCommentService {
         if (existing != null) {
             if (!existing.fingerprint().equals(fingerprint)
                     || !java.util.Objects.equals(existing.parentCommentId(), request.parentCommentId()))
-                throw GameException.conflict("COMMENT_REQUEST_CONFLICT", "같은 요청 식별자에 다른 댓글을 사용할 수 없습니다.");
+                throw GameException.conflict("COMMENT_REQUEST_CONFLICT", "이미 처리된 댓글 요청입니다. 새 댓글로 다시 시도해 주세요.");
             if (existing.deletedAt() != null)
-                throw GameException.conflict("COMMENT_ALREADY_DELETED", "이미 삭제한 댓글 요청입니다.");
+                throw GameException.conflict("COMMENT_ALREADY_DELETED", "이미 삭제한 댓글입니다.");
             return new Created(existing.response(authorId), false);
         }
         long id = comments.insert(videoId, authorId, request.clientCommentId(), fingerprint, content,
