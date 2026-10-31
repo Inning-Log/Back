@@ -189,7 +189,9 @@ export async function main(argv = process.argv.slice(2), environment = process.e
     process.once("SIGINT", sigint);
   }
   try {
-    log({ level: "info", event: "run_started" });
+    log({ level: "info", event: "run_started", polling: config.polling,
+      requestBudget: { logicalPerHour: config.request.maxLogicalRequestsPerHour,
+        attemptsPerHour: config.request.maxAttemptsPerHour } });
     const context = {
       config,
       profile,

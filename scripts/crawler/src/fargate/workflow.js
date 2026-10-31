@@ -72,6 +72,16 @@ function windowStart(earliestAt, config) {
   return earliestAt == null ? null : earliestAt - config.polling.scoreboardLeadMs;
 }
 
+export function scoreboardPollInterval(games, polling) {
+  // One paused game must not slow the other games that are still being played.
+  if (games.some(game => game.status === "LIVE"))
+    return polling.liveScoreboardRefreshMs ?? polling.scoreboardRefreshMs;
+  const active = activeGames(games);
+  if (active.length > 0 && active.every(game => ["DELAYED", "SUSPENDED"].includes(game.status)))
+    return polling.delayedRefreshMs;
+  return polling.scoreboardRefreshMs;
+}
+
 export async function runCollectOnce(context) {
   const { config, source, state, publisher, dateKey } = context;
   const now = context.now ?? (() => Date.now());
@@ -370,10 +380,7 @@ export async function runGameWindow(context) {
         } else {
           terminalDetectedAt = null;
           completedFinalChecks = 0;
-          const delayed = preview.games.some((game) => ["DELAYED", "SUSPENDED"].includes(game.status));
-          nextScoreboardAt = now() + (delayed
-            ? config.polling.delayedRefreshMs
-            : config.polling.scoreboardRefreshMs);
+          nextScoreboardAt = now() + scoreboardPollInterval(preview.games, config.polling);
         }
       }
 

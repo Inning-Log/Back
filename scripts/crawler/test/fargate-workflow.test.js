@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeGameSnapshot } from "../src/domain.js";
 import { MemoryPublisher, MemoryScheduleManager, MemoryStateStore } from "../src/fargate/aws.js";
-import { runGameWindow, runPlanDay } from "../src/fargate/workflow.js";
+import { runGameWindow, runPlanDay, scoreboardPollInterval } from "../src/fargate/workflow.js";
 
 function game(status, scheduledAt, overrides = {}) {
   return normalizeGameSnapshot({
@@ -37,6 +37,46 @@ function config() {
     },
   };
 }
+
+test("only live games accelerate polling, including alongside a suspended game", () => {
+  const polling = { scoreboardRefreshMs: 30_000, liveScoreboardRefreshMs: 15_000, delayedRefreshMs: 60_000 };
+  const interval = (...statuses) => scoreboardPollInterval(statuses.map(status => ({ status })), polling);
+  assert.equal(interval("LIVE", "SUSPENDED"), 15_000);
+  assert.equal(interval("FINISHED", "LIVE"), 15_000);
+  assert.equal(interval("DELAYED", "SCHEDULED"), 30_000);
+  assert.equal(interval("SCHEDULED"), 30_000);
+  assert.equal(interval("SUSPENDED", "FINISHED"), 60_000);
+  assert.equal(interval("DELAYED", "SUSPENDED"), 60_000);
+  assert.equal(interval("UNKNOWN"), 30_000);
+});
+
+test("fast game window follows pregame, live, suspended, resumed and final cadence", async () => {
+  const start = Date.parse("2026-08-26T18:20:00+09:00");
+  const scheduledAt = "2026-08-26T18:30:00+09:00";
+  let clock = start;
+  const calls = [];
+  const states = ["SCHEDULED", "LIVE", "SUSPENDED", "LIVE", "FINISHED"];
+  const result = await runGameWindow({
+    config: { polling: { ...config().polling, scoreboardRefreshMs: 30_000,
+      liveScoreboardRefreshMs: 15_000, delayedRefreshMs: 60_000,
+      scheduleRefreshMs: 1_800_000, leaseRenewMs: 300_000,
+      finalCheckOffsetsMs: [5_000,15_000,30_000], hardTimeoutMs: 3_600_000 } },
+    source: {
+      kind: "fixture",
+      fetchSchedule: async () => ({ games: [game("SCHEDULED", scheduledAt)], anomalies: [] }),
+      fetchScoreboard: async () => {
+        const status = states[Math.min(calls.length,states.length-1)];
+        calls.push(clock-start);
+        return { games: [game(status,scheduledAt)], anomalies: [] };
+      },
+      getMetrics: () => ({ logicalRequests: calls.length, attempts: calls.length }),
+    },
+    state: new MemoryStateStore(), publisher: new MemoryPublisher(), dateKey: "2026-08-26",
+    now: () => clock, sleep: async ms => { clock += ms; },
+  });
+  assert.equal(result.reason,"final-checks-complete");
+  assert.deepEqual(calls,[0,30_000,45_000,105_000,120_000,125_000,135_000,150_000]);
+});
 
 test("daily planner publishes schedule and creates exactly one earliest-game task", async () => {
   const state = new MemoryStateStore();

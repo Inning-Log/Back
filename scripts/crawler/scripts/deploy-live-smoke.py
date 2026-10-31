@@ -57,6 +57,13 @@ expected_revision = previous["taskDefinitionArn"].rsplit(":", 1)[0] + ":" + str(
 environment.update(CRAWLER_PROFILE="kbo-live", CRAWLER_KILL_SWITCH="false", CRAWLER_ENABLED="true",
                    CRAWLER_OPERATOR_CONTACT="https://github.com/Inning-Log/Back",
                    CRAWLER_ECS_TASK_DEFINITION=expected_revision, CRAWLER_SCHEDULE_SERIES="auto")
+# Replace the old revision's 2-minute override along with the matching quota.
+# Keep instance size, task duration and off-day scheduling unchanged.
+environment.update(CRAWLER_SCOREBOARD_REFRESH_MINUTES="0.5",
+                   CRAWLER_LIVE_SCOREBOARD_REFRESH_SECONDS="15",
+                   CRAWLER_DELAYED_REFRESH_MINUTES="1",
+                   CRAWLER_MAX_LOGICAL_REQUESTS_PER_HOUR="300",
+                   CRAWLER_MAX_ATTEMPTS_PER_HOUR="360")
 # Keep approval metadata truthful: this is the operator-requested MVP mode.
 for key in list(environment):
     if key.startswith("CRAWLER_AUTH_") or key == "CRAWLER_ROBOTS_EXCEPTION_GRANTED":

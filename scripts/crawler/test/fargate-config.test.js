@@ -92,3 +92,24 @@ test("Docker image is locked to the Fargate entrypoint and excludes legacy provi
   assert.doesNotMatch(dockerfile, /COPY[^\n]*\bsrc\s+\.\/src/);
   assert.doesNotMatch(dockerfile, /providers\/naver|crawler\.yml/);
 });
+
+test("live profile uses bounded fast polling with enough persistent quota", async () => {
+  const { config } = await loadFargateConfig({ profile: "kbo-live", env: {} });
+  assert.equal(config.polling.liveScoreboardRefreshMs, 15_000);
+  assert.equal(config.polling.scoreboardRefreshMs, 30_000);
+  assert.equal(config.polling.delayedRefreshMs, 60_000);
+  assert.equal(config.request.maxLogicalRequestsPerHour, 300);
+  assert.equal(config.request.maxAttemptsPerHour, 360);
+  assert.equal(config.policy.killSwitch, true);
+  await assert.rejects(loadFargateConfig({ profile: "kbo-live", env: {
+    CRAWLER_MAX_LOGICAL_REQUESTS_PER_HOUR: "40",
+  } }), error => error instanceof FargateConfigError
+    && error.details.some(detail => detail.path === "request.maxLogicalRequestsPerHour" && /fast polling needs/.test(detail.message)));
+  await assert.rejects(loadFargateConfig({ profile: "kbo-live", env: {
+    CRAWLER_LIVE_SCOREBOARD_REFRESH_SECONDS: "1",
+  } }), FargateConfigError);
+  const slower = await loadFargateConfig({ profile: "kbo-live", env: {
+    CRAWLER_LIVE_SCOREBOARD_REFRESH_SECONDS: "30",
+  } });
+  assert.equal(slower.config.polling.liveScoreboardRefreshMs, 30_000);
+});
