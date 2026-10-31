@@ -49,6 +49,7 @@ base:
     scoreboardLeadMs: 10m
     scheduleRefreshMs: 15m
     scoreboardRefreshMs: 2m
+    liveScoreboardRefreshMs: 2m
     delayedRefreshMs: 5m
     leaseRenewMs: 5m
     finalCheckOffsetsMs:
@@ -97,6 +98,14 @@ profiles:
     provider: kbo
     scheduleTransport: page-ajax
     scheduleSeries: auto
+    # Fast polling runs only inside the scheduled game window.
+    polling:
+      scoreboardRefreshMs: 30s
+      liveScoreboardRefreshMs: 15s
+      delayedRefreshMs: 1m
+    request:
+      maxLogicalRequestsPerHour: 300
+      maxAttemptsPerHour: 360
     identity:
       contact: https://github.com/Inning-Log/Back
     runtime:
