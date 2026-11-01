@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { abortableSleep } from "./sleep.js";
+import { attachPreviousScoreObservation } from "./score-observation.js";
 import {
   allGamesTerminal,
   earliestScheduledAt,
@@ -104,6 +105,7 @@ export async function runCollectOnce(context) {
       await saveMonthSchedule({ state, publisher, value: monthlyScheduleSnapshot({ source,
         monthKey: additional.pageDate, observedAt: now(), ...additional }), nowMs: now() });
     }
+    attachPreviousScoreObservation(value, await state.getJson(`LATEST#${dateKey}`));
     const publish = await saveAndPublish({ state, publisher, value, nowMs: now() });
     const savedMonth = await state.getJson(`SCHEDULE#MONTH#${dateKey.slice(0, 7)}`);
     const savedDay = await state.getJson(`LATEST#${dateKey}`);
@@ -256,8 +258,11 @@ export async function runGameWindow(context) {
     if (result.monthlySchedule) await saveMonthSchedule({ state, publisher,
       value: monthlyScheduleSnapshot({ source, monthKey: dateKey.slice(0, 7), observedAt: now(), ...result.monthlySchedule }), nowMs: now() });
   };
+  let previousObservation = null;
   const saveObservation = async (value) => {
+    attachPreviousScoreObservation(value, previousObservation);
     const publish = await saveAndPublish({ state, publisher, value, nowMs: now() });
+    previousObservation = value;
     log({ level: value.anomalies.length ? "warn" : "info", event: "snapshot_saved",
       observedAt: value.observedAt, gameCount: value.games.length, anomalyCount: value.anomalies.length,
       published: publish.changed, requestMetrics: source.getMetrics(),
@@ -266,6 +271,7 @@ export async function runGameWindow(context) {
         resultObservedAt: game.meta?.resultObservedAt })) });
   };
   try {
+    previousObservation = await state.getJson(`LATEST#${dateKey}`);
     let scheduleResult = await source.fetchSchedule(dateKey, fetchOptions);
     await saveSchedule(scheduleResult);
     let scoreboardResult = { games: [], anomalies: [] };

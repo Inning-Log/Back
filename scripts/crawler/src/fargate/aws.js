@@ -207,6 +207,9 @@ function snapshotFingerprint(snapshot) {
     if (game.meta) {
       delete game.meta.scheduleObservedAt;
       delete game.meta.resultObservedAt;
+      // Observation evidence changes on every poll, but unchanged scores must not
+      // create SQS messages or database history rows.
+      delete game.meta.previousScoreObservation;
     }
   }
   return contentFingerprint(stableValue(content));

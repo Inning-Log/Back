@@ -2,6 +2,7 @@ package com.inninglog.domain.game.controller;
 
 import com.inninglog.domain.game.dto.GameListResponse;
 import com.inninglog.domain.game.dto.GameStateHistoryResponse;
+import com.inninglog.domain.game.dto.GameScoreHistoryResponse;
 import com.inninglog.domain.game.service.GameService;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -50,5 +51,17 @@ public class GameController {
         content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
     public GameStateHistoryResponse stateHistory(JwtAuthenticationToken auth, @PathVariable @Positive long gameId) {
         return service.stateHistory(auth.getName(), gameId);
+    }
+
+    @GetMapping("/{gameId}/score-changes")
+    @Operation(summary = "후보정 검토용 점수 변경 이력", description = "경기별 점수 변화와 변경 전후 관측 시각을 반환합니다. 관측 시각은 실제 득점 시각이 아니며 저장된 기록을 자동 수정하지 않습니다.")
+    @ApiResponse(responseCode = "200", description = "조회 성공")
+    @ApiResponse(responseCode = "400", description = "경기 ID 요청 오류",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
+    @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content)
+    @ApiResponse(responseCode = "404", description = "경기 없음",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = GameExceptionHandler.GameErrorResponse.class)))
+    public GameScoreHistoryResponse scoreHistory(JwtAuthenticationToken auth, @PathVariable @Positive long gameId) {
+        return service.scoreHistory(auth.getName(), gameId);
     }
 }
