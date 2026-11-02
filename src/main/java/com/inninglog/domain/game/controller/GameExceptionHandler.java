@@ -19,7 +19,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice(assignableTypes = {GameController.class, UserGameLogController.class, HomeController.class,
         TimelineController.class, InningRecordController.class,
-        InningRecordVideoController.class})
+        InningRecordVideoController.class,
+        com.inninglog.domain.gamevideo.controller.GameVideoController.class})
 public class GameExceptionHandler {
     @ExceptionHandler(GameException.class)
     public ResponseEntity<GameErrorResponse> domain(GameException error) {

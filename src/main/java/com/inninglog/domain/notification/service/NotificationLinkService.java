@@ -42,6 +42,11 @@ public class NotificationLinkService {
                 + "&videoId=" + videoId + "&commentId=" + commentId);
     }
 
+    public String gameVideo(Long gameId, Long gameVideoId) {
+        // The owner's history page of the game opens the merged video sheet.
+        return url("/timeline/history/" + gameId + "?gameVideoId=" + gameVideoId);
+    }
+
     public Map<String, String> friendshipData(Map<String, String> data, boolean accepted) {
         Map<String, String> result = new LinkedHashMap<>(data);
         // The client resolves the friend's current game, including its empty state, from this route.

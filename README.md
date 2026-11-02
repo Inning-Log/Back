@@ -130,6 +130,13 @@ presigned URLs (`/api/inning-records/{recordId}/video`). Storage is disabled by
 default; enable it with `VIDEO_S3_ENABLED=true` and `VIDEO_S3_BUCKET`. See
 [Inning record video API](docs/video-api.md).
 
+### Merged game videos
+
+"영상 저장하기" joins a game's inning videos (optionally with friends' clips) into one
+9:16 video through SQS and an AWS Lambda worker (`video-worker/`). Disabled by
+default; enable it with `GAME_VIDEO_ENABLED=true` and the two queue URLs. See
+[Game video API](docs/game-video-api.md) and [AWS setup](docs/game-video-aws-setup.md).
+
 ## Push notifications
 
 FCM delivery is disabled by default, so local development and tests do not need

@@ -1,0 +1,3 @@
+# Font files are licensed separately; keep them out of git and add them locally before building the image.
+assets/fonts/*
+!assets/fonts/README.md

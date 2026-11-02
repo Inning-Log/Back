@@ -59,6 +59,19 @@ app:
     download-url-ttl: ${VIDEO_DOWNLOAD_URL_TTL:10m}
     max-size: ${VIDEO_MAX_SIZE:500MB}
     allowed-content-types: ${VIDEO_ALLOWED_CONTENT_TYPES:video/mp4,video/quicktime,video/webm}
+  game-videos:
+    # Merged game videos ("영상 저장하기"). Needs app.videos (S3) as well.
+    enabled: ${GAME_VIDEO_ENABLED:false}
+    region: ${GAME_VIDEO_SQS_REGION:ap-northeast-2}
+    job-queue-url: ${GAME_VIDEO_JOB_QUEUE_URL:}
+    result-queue-url: ${GAME_VIDEO_RESULT_QUEUE_URL:}
+    poll-delay: ${GAME_VIDEO_POLL_DELAY:2s}
+    segment-timeout: ${GAME_VIDEO_SEGMENT_TIMEOUT:50m}
+    merge-timeout: ${GAME_VIDEO_MERGE_TIMEOUT:50m}
+    max-friends: ${GAME_VIDEO_MAX_FRIENDS:5}
+    segment-prefix: ${GAME_VIDEO_SEGMENT_PREFIX:segments}
+    output-prefix: ${GAME_VIDEO_OUTPUT_PREFIX:game-videos}
+    template-version: ${GAME_VIDEO_TEMPLATE_VERSION:v1}
   firebase:
     enabled: ${FIREBASE_ENABLED:false}
     project-id: ${FIREBASE_PROJECT_ID:}
