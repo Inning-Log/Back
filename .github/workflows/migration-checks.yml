@@ -74,4 +74,15 @@ jobs:
           MIGRATION_BASELINE_DIR: ${{ runner.temp }}/migration-baseline/src/main/resources/db/migration
         run: |
           chmod +x gradlew
-          ./gradlew test --tests 'com.inninglog.ops.*' --no-daemon
+          ./gradlew test --tests 'com.inninglog.ops.*' bootJar --no-daemon
+      - name: Verify packaged read-only migration command
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/migration_test
+          SPRING_DATASOURCE_USERNAME: migration_test
+          SPRING_DATASOURCE_PASSWORD: migration_test
+          DEPLOYMENT_REVISION: ${{ github.sha }}
+        run: |
+          JAR=$(find build/libs -name '*.jar' ! -name '*plain.jar' | head -n 1)
+          java -Xmx96m -Dloader.main=com.inninglog.ops.MigrationCheck -cp "$JAR" \
+            org.springframework.boot.loader.launch.PropertiesLauncher snapshot "$RUNNER_TEMP/ci-migration-state.json"
+          python3 -c 'import json,os; from pathlib import Path; s=json.loads((Path(os.environ["RUNNER_TEMP"])/"ci-migration-state.json").read_text()); assert s["mode"] == "snapshot" and s["revision"] == os.environ["DEPLOYMENT_REVISION"] and s["applied"]'
