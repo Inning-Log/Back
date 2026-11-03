@@ -8,7 +8,7 @@ management_port=${10} memory=${11} memory_swap=${12} pids=${13} output_dir=${14}
 timeout_seconds=${DEPLOY_HEALTH_TIMEOUT_SECONDS:-180}
 poll_seconds=${DEPLOY_HEALTH_POLL_SECONDS:-3}
 stable_required=${DEPLOY_HEALTH_STABLE_COUNT:-3}
-for tool in docker curl python3; do command -v "$tool" >/dev/null; done
+for tool in docker curl python3 timeout; do command -v "$tool" >/dev/null; done
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 1
 [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ && "$poll_seconds" =~ ^[1-9][0-9]*$ && "$stable_required" =~ ^[1-9][0-9]*$ ]] || exit 1
 test -f "$env_file"
@@ -48,7 +48,7 @@ check_migrations() {
     --entrypoint java "$image" -Xmx96m \
     -Dloader.main=com.inninglog.ops.MigrationCheck -cp /app/app.jar \
     org.springframework.boot.loader.launch.PropertiesLauncher "$mode" /tmp/migration-state.json >/dev/null
-  docker start -a "$check_name"
+  timeout 120s docker start -a "$check_name"
   test "$(docker inspect --format '{{.State.ExitCode}}' "$check_name")" = 0
   docker cp "$check_name:/tmp/migration-state.json" "$destination"
   docker rm "$check_name" >/dev/null
