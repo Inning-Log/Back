@@ -218,10 +218,13 @@ fargate.yml base < profiles.<selected> < 허용 목록에 있는 환경변수 < 
 | 전체 중단 | `CRAWLER_KILL_SWITCH` | `true`; 실 요청 전 명시적으로 `false` 필요 |
 | 일정 선행 실행 | `CRAWLER_PLAN_LEAD_MINUTES` | 60분 |
 | 스코어보드 시작 | `CRAWLER_SCOREBOARD_LEAD_MINUTES` | 10분 |
-| 일정/점수 간격 | `CRAWLER_SCHEDULE_REFRESH_MINUTES`, `CRAWLER_SCOREBOARD_REFRESH_MINUTES` | 15분, 2분보다 짧게 설정 불가 |
+| 일정 간격 | `CRAWLER_SCHEDULE_REFRESH_MINUTES` | 기본 15분, 최소 5분. 실제 운영은 30분 |
+| 시작 대기 점수 간격 | `CRAWLER_SCOREBOARD_REFRESH_MINUTES` | `kbo-live` 0.5분, 최소 0.5분 |
+| LIVE 점수 간격 | `CRAWLER_LIVE_SCOREBOARD_REFRESH_SECONDS` | `kbo-live` 15초, 최소 10초. 빠른 주기에 맞는 요청 한도 필요 |
+| 전체 지연·중단 간격 | `CRAWLER_DELAYED_REFRESH_MINUTES` | `kbo-live` 1분, 최소 0.5분 |
 | 종료 보정 | `CRAWLER_FINAL_CHECK_MINUTES` | `5,30,90`, 오름차순 3개 |
 | 하드 타임아웃 | `CRAWLER_HARD_TIMEOUT_MINUTES` | 최대 720분 |
-| 지속 요청량 | `CRAWLER_MAX_LOGICAL_REQUESTS_PER_HOUR`, `CRAWLER_MAX_ATTEMPTS_PER_HOUR` | DynamoDB에서 모든 Task 합산 |
+| 지속 요청량 | `CRAWLER_MAX_LOGICAL_REQUESTS_PER_HOUR`, `CRAWLER_MAX_ATTEMPTS_PER_HOUR` | `kbo-live` 300회/360회, DynamoDB에서 모든 Task 합산 |
 | AWS 연결 | `CRAWLER_STATE_TABLE`, `CRAWLER_SNAPSHOT_QUEUE_URL`, `CRAWLER_SCHEDULER_*`, `CRAWLER_ECS_*` | 실 실행에서 모두 필수 |
 
 승인 관련 `CRAWLER_AUTH_*` 값은 허가서의 식별자, 검토·만료 시각과 `schedule-page,scoreboard-page,robots-disallow-override` scope를 그대로 반영해야 한다. 증빙 원문이나 개인정보는 환경변수와 Git에 넣지 않는다.

@@ -50,6 +50,13 @@ public class GameService {
         return GameStateHistoryResponse.from(gameId, games.stateHistory(gameId));
     }
 
+    @Transactional(readOnly = true)
+    public GameScoreHistoryResponse scoreHistory(String subject, long gameId) {
+        access.require(subject, false);
+        requireGame(gameId);
+        return GameScoreHistoryResponse.from(gameId, games.stateHistory(gameId));
+    }
+
     @Transactional
     public Registration create(String subject, CreateUserGameLogRequest request) {
         User user = access.require(subject, true);

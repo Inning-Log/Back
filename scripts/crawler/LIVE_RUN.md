@@ -57,9 +57,9 @@ DB 조회까지 확인해야 한다. SQS 메시지 수만으로 서비스 DB 성
 | 일정 갱신 | 매일 06:00·12:00·16:00 KST, 짧은 Fargate 작업 1개씩 |
 | 범위 | 현재 월 일정 1회 요청, 오늘 경기 시각으로 당일 예약 생성/수정 |
 | 경기 작업 시작 | 첫 경기 예정 시각 10분 전 예약. 실제 시작은 Scheduler/컨테이너 기동 지연이 있음 |
-| 점수 조회 | 2분 간격. 경기 수만큼 요청하지 않고 스코어보드 1회로 전체 경기 확인 |
+| 점수 조회 | LIVE가 하나라도 있으면 15초, 시작 대기는 30초. 스코어보드 1회로 전체 경기 확인 |
 | 경기 중 일정 갱신 | 30분 간격, 취소·시간 변경 확인 |
-| 지연·중단 상태 | 5분 간격 |
+| 지연·중단 상태 | 남은 경기가 모두 지연·중단이면 60초. 다른 LIVE 경기가 있으면 15초 유지 |
 | 정상 종료 | **모든 경기** 종료 감지 후 5·15·30분 추가 확인을 마친 뒤 task 종료 |
 | 무경기일 | 계획 작업만 끝내고 경기 작업 예약을 만들지 않음. 이미 예약돼 있다면 제거 |
 | 전 경기 취소·연기 | 재확인 후 조기 종료 가능 |
@@ -74,11 +74,16 @@ CRAWLER_KILL_SWITCH=false
 CRAWLER_PLAN_LEAD_MINUTES=10
 CRAWLER_SCOREBOARD_LEAD_MINUTES=10
 CRAWLER_SCHEDULE_REFRESH_MINUTES=30
-CRAWLER_SCOREBOARD_REFRESH_MINUTES=2
-CRAWLER_DELAYED_REFRESH_MINUTES=5
+CRAWLER_SCOREBOARD_REFRESH_MINUTES=0.5
+CRAWLER_LIVE_SCOREBOARD_REFRESH_SECONDS=15
+CRAWLER_DELAYED_REFRESH_MINUTES=1
+CRAWLER_MAX_LOGICAL_REQUESTS_PER_HOUR=300
+CRAWLER_MAX_ATTEMPTS_PER_HOUR=360
 CRAWLER_FINAL_CHECK_MINUTES=5,15,30
 CRAWLER_HARD_TIMEOUT_MINUTES=720
 ```
+
+2026-11-01에 경기 중 수집 주기를 단축했다. 원본 갱신·응답·서버 처리 지연은 별도이며, 득점 후 15초 내 반영을 보장하는 값은 아니다. 프론트 갱신과 후보정 설명은 [전달 문서](../../docs/live-score-latency-2026-11-01.md)를 참고한다.
 
 ECS task definition을 새 revision으로 등록한 후 계획 Scheduler의 task definition과
 `CRAWLER_ECS_TASK_DEFINITION`(계획 작업이 생성할 경기 작업의 revision)을 함께 맞춘다.

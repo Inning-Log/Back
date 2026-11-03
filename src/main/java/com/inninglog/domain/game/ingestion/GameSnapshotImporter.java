@@ -6,6 +6,7 @@ import com.inninglog.domain.game.model.Game;
 import com.inninglog.domain.game.model.GameStatus;
 import com.inninglog.domain.game.model.GameType;
 import com.inninglog.domain.game.model.GameStateSnapshot;
+import com.inninglog.domain.game.model.ScoreObservation;
 import com.inninglog.domain.game.notification.GameNotificationService;
 import com.inninglog.domain.game.repository.GameRepository;
 import java.nio.charset.StandardCharsets;
@@ -88,7 +89,7 @@ public class GameSnapshotImporter {
             long gameId = result.gameId();
             if (!matched.add(gameId)) fail("MULTIPLE_ROWS_MATCH_SAME_GAME");
             schedules.seen(gameId, game);
-            recordEffectiveState(gameId, mode, result.previous());
+            recordEffectiveState(gameId, mode, result.previous(), game);
         }
         if (monthly && anomalies.isEmpty() && !coverage.isEmpty()) schedules.reconcile(month, coverage, matched, payload.path("deferredGames"));
         String scopeKey = (monthly ? "MONTH:" + month : "DAY:" + date);
@@ -133,9 +134,19 @@ public class GameSnapshotImporter {
         if (resultAt == null) resultAt = observedAt;
         if (resultSource == null) resultSource = "SCHEDULE";
         if (!Set.of("SCHEDULE", "SCOREBOARD").contains(resultSource) || scheduleAt.isAfter(observedAt) || resultAt.isAfter(observedAt)) fail("INVALID_FIELD_OBSERVATION");
+        ScoreObservation previousScore = null;
+        JsonNode evidence = meta.path("previousScoreObservation");
+        if (!evidence.isMissingNode() && !evidence.isNull()) {
+            if (!evidence.isObject() || !"SCOREBOARD".equals(resultSource)) fail("INVALID_PREVIOUS_SCORE_OBSERVATION");
+            Instant previousAt = time(evidence, "observedAt", true);
+            int previousHome = requiredInt(evidence, "homeScore"), previousAway = requiredInt(evidence, "awayScore");
+            if (!previousAt.isBefore(resultAt) || previousHome < 0 || previousAway < 0
+                    || homeScore == null || awayScore == null) fail("INVALID_PREVIOUS_SCORE_OBSERVATION");
+            previousScore = new ScoreObservation(previousAt, previousHome, previousAway);
+        }
         return new Incoming(season, type, date, sequence, time(entry,"scheduledAt",false), time(entry,"startedAt",false),
                 time(entry,"endedAt",false), home, away, text(entry,"stadium",false,100), homeScore, awayScore, status,
-                inning, half, scheduleAt, resultAt, resultSource, text(entry.path("externalId"),"kbo",false,100));
+                inning, half, scheduleAt, resultAt, resultSource, text(entry.path("externalId"),"kbo",false,100), previousScore);
     }
 
     private UpsertResult upsert(Incoming value, long samePairCount) {
@@ -212,7 +223,7 @@ public class GameSnapshotImporter {
      * The import lock serializes this compare-and-append operation across instances.
      * Read back the effective row so stale or lower-priority input never becomes history.
      */
-    private void recordEffectiveState(long gameId, String mode, Game previousObservation) {
+    private void recordEffectiveState(long gameId, String mode, Game previousObservation, Incoming incoming) {
         Game current = games.find(gameId).orElseThrow();
         var previous = jdbc.query("""
                 select id,status,current_inning,current_half,home_score,away_score,observed_at,result_source
@@ -222,7 +233,7 @@ public class GameSnapshotImporter {
                         GameStatus.valueOf(rs.getString("status")),
                         rs.getObject("current_inning", Integer.class), rs.getString("current_half"),
                         rs.getObject("home_score", Integer.class), rs.getObject("away_score", Integer.class),
-                        GameRepository.instant(rs, "observed_at"), rs.getString("result_source")), gameId)
+                        GameRepository.instant(rs, "observed_at"), rs.getString("result_source"), null), gameId)
                 .stream().findFirst();
         EffectiveState next = new EffectiveState(current.status(), current.currentInning(), current.currentHalf(),
                 current.homeScore(), current.awayScore());
@@ -230,14 +241,22 @@ public class GameSnapshotImporter {
             var old = previous.get();
             if (new EffectiveState(old.status(), old.currentInning(), old.currentHalf(), old.homeScore(), old.awayScore()).equals(next)) return;
         }
+        // Never attach evidence from rejected stale/lower-priority input. The API
+        // additionally checks that its prior score agrees with the history chain.
+        ScoreObservation evidence = incoming.previousScoreObservation();
+        if (!current.resultObservedAt().equals(incoming.resultObservedAt())
+                || !current.resultSource().equals(incoming.resultSource())
+                || !Objects.equals(current.homeScore(), incoming.homeScore())
+                || !Objects.equals(current.awayScore(), incoming.awayScore())) evidence = null;
         jdbc.update("""
                 insert into game_state_snapshots(
                     game_id,status,current_inning,current_half,home_score,away_score,
-                    observed_at,result_source,created_at)
-                values (?,?,?,?,?,?,?,?,?)
+                    observed_at,result_source,created_at,previous_score_observed_at,previous_home_score,previous_away_score)
+                values (?,?,?,?,?,?,?,?,?,?,?,?)
                 """, current.id(), current.status().name(), current.currentInning(), current.currentHalf(),
                 current.homeScore(), current.awayScore(), timestamp(current.resultObservedAt()),
-                current.resultSource(), timestamp(clock.instant()));
+                current.resultSource(), timestamp(clock.instant()), evidence == null ? null : timestamp(evidence.observedAt()),
+                evidence == null ? null : evidence.homeScore(), evidence == null ? null : evidence.awayScore());
         long stateId = jdbc.queryForObject("select max(id) from game_state_snapshots where game_id = ?", Long.class, gameId);
         // The latest observation may have refreshed provenance/time without adding a history row.
         notifications.onEffectiveState(current, previous.isPresent() ? previousObservation : null, stateId, mode);
@@ -334,7 +353,7 @@ public class GameSnapshotImporter {
     public record Incoming(int season, GameType type, LocalDate date, Integer sequence, Instant scheduledAt, Instant startedAt,
                            Instant endedAt, long home, long away, String stadium, Integer homeScore, Integer awayScore,
                            GameStatus status, Integer inning, String half, Instant scheduleObservedAt, Instant resultObservedAt,
-                           String resultSource, String externalId) {
+                           String resultSource, String externalId, ScoreObservation previousScoreObservation) {
         String pairKey() { return date + ":" + home + ":" + away; }
     }
 }

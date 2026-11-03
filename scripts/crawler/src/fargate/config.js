@@ -24,6 +24,7 @@ const DURATION_KEYS = new Set([
   "scoreboardLeadMs",
   "scheduleRefreshMs",
   "scoreboardRefreshMs",
+  "liveScoreboardRefreshMs",
   "delayedRefreshMs",
   "leaseRenewMs",
   "hardTimeoutMs",
@@ -64,6 +65,7 @@ const KNOWN_ENV = new Set([
   "CRAWLER_SCOREBOARD_LEAD_MINUTES",
   "CRAWLER_SCHEDULE_REFRESH_MINUTES",
   "CRAWLER_SCOREBOARD_REFRESH_MINUTES",
+  "CRAWLER_LIVE_SCOREBOARD_REFRESH_SECONDS",
   "CRAWLER_DELAYED_REFRESH_MINUTES",
   "CRAWLER_LEASE_RENEW_MINUTES",
   "CRAWLER_FINAL_CHECK_MINUTES",
@@ -118,8 +120,8 @@ const configSchema = z.object({
     schemaRetryCount: z.number().int().min(0).max(2).default(2),
     schemaRetryDelayMs: z.number().int().min(120_000).max(300_000).default(120_000),
     retryBaseDelayMs: z.number().int().min(500).max(10_000),
-    maxLogicalRequestsPerHour: z.number().int().min(2).max(120),
-    maxAttemptsPerHour: z.number().int().min(2).max(180),
+    maxLogicalRequestsPerHour: z.number().int().min(2).max(600),
+    maxAttemptsPerHour: z.number().int().min(2).max(900),
   }).strict().superRefine((value, ctx) => {
     if (value.maxAttemptsPerHour < value.maxLogicalRequestsPerHour) {
       ctx.addIssue({
@@ -133,8 +135,9 @@ const configSchema = z.object({
     planLeadMs: z.number().int().min(0).max(6 * 3_600_000),
     scoreboardLeadMs: z.number().int().min(0).max(2 * 3_600_000),
     scheduleRefreshMs: z.number().int().min(5 * 60_000).max(60 * 60_000),
-    scoreboardRefreshMs: z.number().int().min(2 * 60_000).max(15 * 60_000),
-    delayedRefreshMs: z.number().int().min(2 * 60_000).max(30 * 60_000),
+    scoreboardRefreshMs: z.number().int().min(30_000).max(15 * 60_000),
+    liveScoreboardRefreshMs: z.number().int().min(10_000).max(15 * 60_000),
+    delayedRefreshMs: z.number().int().min(30_000).max(30 * 60_000),
     leaseRenewMs: z.number().int().min(60_000).max(30 * 60_000),
     finalCheckOffsetsMs: z.array(z.number().int().positive()).length(3),
     hardTimeoutMs: z.number().int().min(30 * 60_000).max(12 * 3_600_000),
@@ -178,7 +181,18 @@ const configSchema = z.object({
       assignPublicIp: z.boolean(),
     }).strict(),
   }).strict(),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (value.polling.liveScoreboardRefreshMs >= 120_000) return;
+  // One scoreboard request covers all games; reserve room for two schedule pages
+  // per refresh plus planner/recovery traffic sharing the persistent quota.
+  const fastest = Math.min(value.polling.liveScoreboardRefreshMs, value.polling.scoreboardRefreshMs, value.polling.delayedRefreshMs);
+  const required = Math.ceil(3_600_000 / fastest)
+    + 2 * Math.ceil(3_600_000 / value.polling.scheduleRefreshMs) + 12;
+  if (value.request.maxLogicalRequestsPerHour < required) ctx.addIssue({
+    code: z.ZodIssueCode.custom, path: ["request", "maxLogicalRequestsPerHour"],
+    message: `fast polling needs at least ${required} logical requests per hour`,
+  });
+});
 
 export class FargateConfigError extends Error {
   constructor(message, details = []) {
@@ -297,6 +311,7 @@ function applyEnvironment(config, env) {
     CRAWLER_SCOREBOARD_LEAD_MINUTES: ["polling.scoreboardLeadMs", (value) => minutes("CRAWLER_SCOREBOARD_LEAD_MINUTES", value)],
     CRAWLER_SCHEDULE_REFRESH_MINUTES: ["polling.scheduleRefreshMs", (value) => minutes("CRAWLER_SCHEDULE_REFRESH_MINUTES", value)],
     CRAWLER_SCOREBOARD_REFRESH_MINUTES: ["polling.scoreboardRefreshMs", (value) => minutes("CRAWLER_SCOREBOARD_REFRESH_MINUTES", value)],
+    CRAWLER_LIVE_SCOREBOARD_REFRESH_SECONDS: ["polling.liveScoreboardRefreshMs", (value) => Number(value) * 1_000],
     CRAWLER_DELAYED_REFRESH_MINUTES: ["polling.delayedRefreshMs", (value) => minutes("CRAWLER_DELAYED_REFRESH_MINUTES", value)],
     CRAWLER_LEASE_RENEW_MINUTES: ["polling.leaseRenewMs", (value) => minutes("CRAWLER_LEASE_RENEW_MINUTES", value)],
     CRAWLER_FINAL_CHECK_MINUTES: ["polling.finalCheckOffsetsMs", (value) => list(value).map((entry) => minutes("CRAWLER_FINAL_CHECK_MINUTES", entry))],
