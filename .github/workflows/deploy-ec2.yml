@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  actions: read
+
 concurrency:
   group: deploy-ec2
   cancel-in-progress: false
@@ -15,6 +19,9 @@ env:
 
 
 jobs:
+  migration-checks:
+    uses: ./.github/workflows/migration-checks.yml
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -65,7 +72,7 @@ jobs:
   deploy:
     name: Deploy on EC2
     runs-on: ubuntu-latest
-    needs: [test, build-image]
+    needs: [test, build-image, migration-checks]
 
     env:
       IMAGE_NAME: ${{ secrets.DOCKER_IMAGE_NAME || 'inning-log' }}
@@ -92,6 +99,9 @@ jobs:
       BACKEND_SECURITY_GROUP_ID: ${{ secrets.BACKEND_SECURITY_GROUP_ID }}
 
     steps:
+      - name: Checkout deployment scripts
+        uses: actions/checkout@v4
+
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
@@ -217,84 +227,31 @@ jobs:
             "set -o pipefail; gzip -dc | docker load"
 
 
-      - name: Stop previous container
-        id: stop-previous
+      - name: Validate migrations and deploy with readiness rollback
+        id: rollout
         run: |
-          ssh \
-            -i ~/.ssh/ec2_key \
-            -p "$EC2_PORT" \
-            "$EC2_USER@$EC2_HOST" \
-            "set -e; \
-            if docker container inspect '$CONTAINER_NAME' >/dev/null 2>&1; then \
-              if docker container inspect '$CONTAINER_NAME-rollback' >/dev/null 2>&1; then \
-                docker rm '$CONTAINER_NAME-rollback'; \
-              fi; \
-              docker stop '$CONTAINER_NAME'; \
-              docker rename '$CONTAINER_NAME' '$CONTAINER_NAME-rollback'; \
-            fi"
+          ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST" \
+            "bash -s -- '$CONTAINER_NAME' '$IMAGE_NAME:${{ github.sha }}' '${{ github.sha }}' \
+              '$EC2_ENV_FILE' '$EC2_FIREBASE_CREDENTIALS_FILE' '$APP_BIND_ADDRESS' \
+              '$APP_HOST_PORT' '$APP_PORT' '$MANAGEMENT_HOST_PORT' '$MANAGEMENT_PORT' \
+              '$CONTAINER_MEMORY' '$CONTAINER_MEMORY_SWAP' '$CONTAINER_PIDS_LIMIT' \
+              '$REMOTE_DEPLOY_DIR/verified-${{ github.sha }}'" \
+            < scripts/deploy/deploy-application.sh
 
-
-      - name: Start new container
-        id: start-new
+      - name: Download verified migration state
         run: |
-          ssh \
-            -i ~/.ssh/ec2_key \
-            -p "$EC2_PORT" \
-            "$EC2_USER@$EC2_HOST" \
-            "set -e; \
-            if grep -Eiq '^[[:space:]]*FIREBASE_ENABLED[[:space:]]*=[[:space:]]*\"?true\"?[[:space:]]*$' '$EC2_ENV_FILE'; then \
-               docker run -d \
-                 --name '$CONTAINER_NAME' \
-                 --restart unless-stopped \
-                 --memory '$CONTAINER_MEMORY' \
-                 --memory-swap '$CONTAINER_MEMORY_SWAP' \
-                 --pids-limit '$CONTAINER_PIDS_LIMIT' \
-                 --env-file '$EC2_ENV_FILE' \
-                 --env 'MANAGEMENT_SERVER_ADDRESS=0.0.0.0' \
-                 --env 'MANAGEMENT_SERVER_PORT=$MANAGEMENT_PORT' \
-                 --mount 'type=bind,src=$EC2_FIREBASE_CREDENTIALS_FILE,dst=/run/secrets/firebase-admin.json,readonly' \
-                 -p '$APP_BIND_ADDRESS:$APP_HOST_PORT:$APP_PORT' \
-                 -p '127.0.0.1:$MANAGEMENT_HOST_PORT:$MANAGEMENT_PORT' \
-                 '$IMAGE_NAME:${{ github.sha }}'; \
-             else \
-               docker run -d \
-                 --name '$CONTAINER_NAME' \
-                 --restart unless-stopped \
-                 --memory '$CONTAINER_MEMORY' \
-                 --memory-swap '$CONTAINER_MEMORY_SWAP' \
-                 --pids-limit '$CONTAINER_PIDS_LIMIT' \
-                 --env-file '$EC2_ENV_FILE' \
-                 --env 'MANAGEMENT_SERVER_ADDRESS=0.0.0.0' \
-                 --env 'MANAGEMENT_SERVER_PORT=$MANAGEMENT_PORT' \
-                 -p '$APP_BIND_ADDRESS:$APP_HOST_PORT:$APP_PORT' \
-                 -p '127.0.0.1:$MANAGEMENT_HOST_PORT:$MANAGEMENT_PORT' \
-                 '$IMAGE_NAME:${{ github.sha }}'; \
-             fi; \
-             test \"\$(docker inspect --format '{{.State.Running}}' '$CONTAINER_NAME')\" = true \
-             && test \"\$(docker inspect --format '{{.RestartCount}}' '$CONTAINER_NAME')\" = 0"
+          scp -i ~/.ssh/ec2_key -P "$EC2_PORT" \
+            "$EC2_USER@$EC2_HOST:$REMOTE_DEPLOY_DIR/verified-${{ github.sha }}/migration-state.json" \
+            migration-state.json
+          cat migration-state.json >> "$GITHUB_STEP_SUMMARY"
 
-
-      - name: Restore previous container after failed deployment
-        if: always() && steps.stop-previous.outcome == 'success' && steps.start-new.outcome != 'success'
-        run: |
-          ssh \
-            -i ~/.ssh/ec2_key \
-            -p "$EC2_PORT" \
-            "$EC2_USER@$EC2_HOST" \
-            "set -e; \
-            if docker container inspect '$CONTAINER_NAME-rollback' >/dev/null 2>&1; then \
-              if docker container inspect '$CONTAINER_NAME' >/dev/null 2>&1; then \
-                docker stop '$CONTAINER_NAME' || true; \
-                docker rm '$CONTAINER_NAME'; \
-              fi; \
-              docker rename '$CONTAINER_NAME-rollback' '$CONTAINER_NAME'; \
-              docker start '$CONTAINER_NAME'; \
-              test \"\$(docker inspect --format '{{.State.Running}}' '$CONTAINER_NAME')\" = true; \
-            else \
-              echo 'No previous container is available for rollback'; \
-              exit 1; \
-            fi"
-
+      - name: Preserve verified deployment metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-deployment
+          path: migration-state.json
+          if-no-files-found: error
+          retention-days: 90
 
       # 실행 중인 컨테이너 및 직전 rollback 컨테이너가 참조하는 이미지는 보존한다.
       - name: Prune unused images
