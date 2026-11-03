@@ -91,6 +91,8 @@ class RolloutTest(unittest.TestCase):
     def test_preflight_failure_leaves_old_container_untouched(self):
         result, state = self.run_scenario("preflight-fail")
         self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('Checking candidate', result.stdout)
+        self.assertTrue(any(call[0] == 'create' for call in state['calls']))
         self.assertEqual(state['containers']['app']['image'], 'old-image')
         self.assertFalse(any(call[0] in ('stop', 'rename', 'run') for call in state['calls']))
 
