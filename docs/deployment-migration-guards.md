@@ -29,6 +29,7 @@ PostgreSQL 세션은 `default_transaction_read_only=on`이며 `migrate`, `repair
 `clean`, `baseline`은 호출하지 않는다. 신규 pending 버전만 허용하며, missing/future,
 checksum 불일치는 실패한다. 비어 있는 DB는 명시적인 최초 구축이 필요하므로 실패한다.
 검증 실패 시 기존 서버를 중지하지 않는다.
+검증 프로세스는 DB 연결 지연을 포함해 120초로 제한하고 시간 초과도 실패로 처리한다.
 
 지금 애플리케이션과 동일한 `SPRING_DATASOURCE_*`, 기본 schema/history table을 사용한다.
 별도 schema/table/location을 도입하면 애플리케이션과 checker를 함께 변경해야 한다.
