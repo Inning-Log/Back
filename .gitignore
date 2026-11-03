@@ -48,3 +48,4 @@ out/
 *service-account*.json
 *service_account*.json
 firebase-admin*.json
+.DS_Store

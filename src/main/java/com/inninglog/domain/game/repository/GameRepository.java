@@ -4,6 +4,7 @@ import com.inninglog.domain.game.model.Game;
 import com.inninglog.domain.game.model.GameRecordingSummary;
 import com.inninglog.domain.game.model.GameStatus;
 import com.inninglog.domain.game.model.GameStateSnapshot;
+import com.inninglog.domain.game.model.ScoreObservation;
 import com.inninglog.domain.game.model.GameType;
 import com.inninglog.domain.game.model.UserGameLog;
 import com.inninglog.domain.game.model.ViewingType;
@@ -48,7 +49,9 @@ public class GameRepository {
             rs.getLong("id"), rs.getLong("game_id"), GameStatus.valueOf(rs.getString("status")),
             rs.getObject("current_inning", Integer.class), rs.getString("current_half"),
             rs.getObject("home_score", Integer.class), rs.getObject("away_score", Integer.class),
-            instant(rs, "observed_at"), rs.getString("result_source"));
+            instant(rs, "observed_at"), rs.getString("result_source"),
+            instant(rs, "previous_score_observed_at") == null ? null : new ScoreObservation(
+                    instant(rs, "previous_score_observed_at"), rs.getInt("previous_home_score"), rs.getInt("previous_away_score")));
 
     public GameRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 

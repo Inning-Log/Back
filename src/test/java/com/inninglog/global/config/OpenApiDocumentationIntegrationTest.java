@@ -57,7 +57,10 @@ class OpenApiDocumentationIntegrationTest {
                         com.inninglog.domain.notification.entity.NotificationType.FRIEND_REQUEST,
                         "title", "body", Map.of(), null, java.time.Instant.EPOCH),
                 new NotificationListResponse(List.of(), null, false, 0),
-                new GameResponse.Score(null, null));
+                new GameResponse.Score(null, null),
+                new com.inninglog.domain.game.dto.GameScoreHistoryResponse.ScoreChange(1, "INITIAL_OBSERVATION",
+                        null, null, null, new com.inninglog.domain.game.dto.GameScoreHistoryResponse.ObservedScore(0, 0),
+                        null, java.time.Instant.EPOCH, null, null, "SCOREBOARD"));
         for (Object response : responses) {
             JsonNode json = objectMapper.readTree(responseMapper.writeValueAsString(response));
             JsonNode properties = schemas.path(response.getClass().getSimpleName()).path("properties");
