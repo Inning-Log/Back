@@ -102,6 +102,13 @@ app:
         - accounts.google.com
 
 management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
   server:
     port: ${MANAGEMENT_SERVER_PORT:9090}
     address: ${MANAGEMENT_SERVER_ADDRESS:127.0.0.1}
