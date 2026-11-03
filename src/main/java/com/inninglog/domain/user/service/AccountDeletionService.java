@@ -2,6 +2,7 @@ package com.inninglog.domain.user.service;
 
 import com.inninglog.domain.auth.repository.AuthRefreshTokenRepository;
 import com.inninglog.domain.game.repository.GameRepository;
+import com.inninglog.domain.gamevideo.service.GameVideoService;
 import com.inninglog.domain.friendship.repository.FriendshipRepository;
 import com.inninglog.domain.notification.repository.UserPushRegistrationRepository;
 import com.inninglog.domain.notification.repository.UserNotificationRepository;
@@ -27,6 +28,7 @@ public class AccountDeletionService {
     private final GameRepository gameRepository;
     private final UserNotificationRepository notificationRepository;
     private final VideoRepository videoRepository;
+    private final GameVideoService gameVideoService;
 
     public AccountDeletionService(
             UserRepository userRepository,
@@ -37,7 +39,8 @@ public class AccountDeletionService {
             Clock clock,
             GameRepository gameRepository,
             UserNotificationRepository notificationRepository,
-            VideoRepository videoRepository
+            VideoRepository videoRepository,
+            GameVideoService gameVideoService
     ) {
         this.userRepository = userRepository;
         this.oAuthAccountRepository = oAuthAccountRepository;
@@ -48,6 +51,7 @@ public class AccountDeletionService {
         this.gameRepository = gameRepository;
         this.notificationRepository = notificationRepository;
         this.videoRepository = videoRepository;
+        this.gameVideoService = gameVideoService;
     }
 
     @Transactional
@@ -67,6 +71,7 @@ public class AccountDeletionService {
         }
         // Commit the deletion queue with withdrawal; storage outages must not prevent withdrawal.
         videoRepository.deleteForUser(user.getId(), now);
+        gameVideoService.deleteForUser(user.getId());
         gameRepository.deleteUserLogs(user.getId(), now);
         if (!user.isDeleted()) {
             oAuthAccountRepository.findAllByUserId(user.getId())
